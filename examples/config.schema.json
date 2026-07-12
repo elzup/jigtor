@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["key", "max"],
+  "properties": {
+    "max": {
+      "type": "integer",
+      "title": "Max connections",
+      "description": "Upper bound for concurrent device connections.",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "key": {
+      "type": "string",
+      "description": "Device API key.",
+      "minLength": 3,
+      "pattern": "^[a-zA-Z0-9]+$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["idle", "active", "sleep"],
+      "default": "idle"
+    },
+    "telemetry": {
+      "type": "object",
+      "title": "Telemetry",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "intervalSec": { "type": "number", "minimum": 0.5 }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "jigtor",
+  "version": "0.1.0",
+  "description": "Local-first, schema-driven config.json editor",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "portless run --name jigtor vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "ceg": "node tools/ceg.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "fast-check": "^3.23.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.2"
+  }
+}

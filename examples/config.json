@@ -1,0 +1,10 @@
+{
+  "max": 20,
+  "key": "abc123",
+  "mode": "active",
+  "telemetry": {
+    "enabled": true,
+    "intervalSec": 5
+  },
+  "tags": ["prod", "eu-west"]
+}
