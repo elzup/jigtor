@@ -13,6 +13,15 @@ const LONG_STRING_THRESHOLD = 80
 const ENUM_RADIO_MAX = 6
 
 const pathKey = (path: FieldPath): string => path.join('/')
+// Human-facing dotted path, root-anchored: [] -> "." , ['a','b'] -> ".a.b" (REQ-R17).
+const dotPath = (path: FieldPath): string => (path.length ? `.${path.join('.')}` : '.')
+
+function pathTag(path: FieldPath): HTMLElement {
+  const code = document.createElement('code')
+  code.className = 'field-path'
+  code.textContent = dotPath(path)
+  return code
+}
 // Collision-free key for matching a FieldError to its errbox. `pathKey` ('/')
 // is ambiguous for property names containing '/', e.g. ['a/b'] vs ['a','b'];
 // JSON.stringify of the array segments is unambiguous.
@@ -35,6 +44,19 @@ function errBox(path: FieldPath): HTMLElement {
   return box
 }
 
+// REQ-R18: position-stable per-field meta row that refreshFieldMeta fills with a
+// live value chip, and — when the field differs from the saved baseline — the
+// previous value plus a reset button. Leaf fields only (objects are containers).
+function metaBox(path: FieldPath): HTMLElement {
+  const box = document.createElement('div')
+  box.className = 'field-meta'
+  box.setAttribute('data-metapath', errKey(path))
+  return box
+}
+
+const fmtJson = (v: unknown): string => (v === undefined ? '∅' : JSON.stringify(v))
+const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
 function descriptionEl(field: FieldNode): HTMLElement | null {
   if (!field.description) return null
   const desc = document.createElement('p')
@@ -45,25 +67,39 @@ function descriptionEl(field: FieldNode): HTMLElement | null {
 
 function labelEl(field: FieldNode): HTMLLabelElement {
   const label = document.createElement('label')
-  label.textContent = field.required ? `${field.label} *` : field.label
+  const name = document.createElement('span')
+  name.className = 'field-name'
+  name.textContent = field.required ? `${field.label} *` : field.label
+  label.append(name, pathTag(field.path)) // REQ-R17: dotted path on every field
   label.setAttribute('data-path', pathKey(field.path))
   return label
 }
 
 function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLElement {
   if (field.kind === 'object') {
-    const fieldset = document.createElement('fieldset')
-    const legend = document.createElement('legend')
-    legend.textContent = field.required ? `${field.label} *` : field.label
-    fieldset.appendChild(legend)
-    const desc = descriptionEl(field)
-    if (desc) fieldset.appendChild(desc)
-    // REQ-R06: errors targeting the object node itself land here.
-    fieldset.appendChild(errBox(field.path))
-    for (const child of field.children) {
-      fieldset.appendChild(renderNode(child, getAt(value, [child.path.at(-1)!]), onChange))
+    // REQ-R04: the ROOT object (depth 0) renders WITHOUT the fieldset/legend
+    // chrome — it always wraps the whole form, so the extra box + "." legend is
+    // just noise. Nested objects keep their titled fieldset.
+    const isRoot = field.path.length === 0
+    const box = document.createElement(isRoot ? 'div' : 'fieldset')
+    if (isRoot) {
+      box.className = 'form-root'
+    } else {
+      const legend = document.createElement('legend')
+      const legendName = document.createElement('span')
+      legendName.className = 'field-name'
+      legendName.textContent = field.required ? `${field.label} *` : field.label
+      legend.append(legendName, pathTag(field.path)) // REQ-R17: dotted path on objects too
+      box.appendChild(legend)
     }
-    return fieldset
+    const desc = descriptionEl(field)
+    if (desc) box.appendChild(desc)
+    // REQ-R06: errors targeting the object node itself land here (root included).
+    box.appendChild(errBox(field.path))
+    for (const child of field.children) {
+      box.appendChild(renderNode(child, getAt(value, [child.path.at(-1)!]), onChange))
+    }
+    return box
   }
 
   const wrap = document.createElement('div')
@@ -73,6 +109,7 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
   const finish = (): HTMLElement => {
     const desc = descriptionEl(field)
     if (desc) wrap.appendChild(desc)
+    wrap.appendChild(metaBox(field.path)) // REQ-R18: live value + dirty/reset
     wrap.appendChild(errBox(field.path))
     return wrap
   }
@@ -252,6 +289,46 @@ export function refreshErrors(formEl: HTMLElement, errors: FieldError[]): void {
     }
     formEl.appendChild(summary)
   }
+}
+
+export type OnReset = (path: FieldPath) => void
+
+// REQ-R18: refresh each leaf field's meta row IN PLACE (no input rebuild, same
+// contract as refreshErrors). Shows the live current value; when a field differs
+// from `baseline`, marks its `.field` dirty, shows the previous value, and offers
+// a reset button wired to `onReset(path)`.
+export function refreshFieldMeta(
+  formEl: HTMLElement,
+  baseline: unknown,
+  current: unknown,
+  onReset: OnReset,
+): void {
+  formEl.querySelectorAll('.field').forEach((f) => f.classList.remove('field-dirty'))
+  formEl.querySelectorAll('.field-meta').forEach((box) => {
+    box.replaceChildren()
+    const raw = box.getAttribute('data-metapath')
+    if (raw === null) return
+    const path = JSON.parse(raw) as FieldPath
+    const cur = getAt(current, path)
+    const base = getAt(baseline, path)
+
+    const val = document.createElement('span')
+    val.className = 'fv'
+    val.textContent = `= ${fmtJson(cur)}`
+    box.appendChild(val)
+
+    if (sameJson(cur, base)) return
+    box.closest('.field')?.classList.add('field-dirty')
+    const was = document.createElement('span')
+    was.className = 'fv-was'
+    was.textContent = `was ${fmtJson(base)}`
+    const reset = document.createElement('button')
+    reset.type = 'button'
+    reset.className = 'fv-reset'
+    reset.textContent = 'reset'
+    reset.addEventListener('click', () => onReset(path))
+    box.append(was, reset)
+  })
 }
 
 export function renderForm(

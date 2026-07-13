@@ -21,7 +21,11 @@ coherence:
 - REQ-R03: WHEN `kind: 'boolean'`
   THE SYSTEM SHALL `<input type=checkbox>` を描画する。
 - REQ-R04: WHEN `kind: 'object'`
-  THE SYSTEM SHALL 子フィールドを入れ子の `<fieldset>` として描画する。
+  THE SYSTEM SHALL 子フィールドを入れ子の `<fieldset>` (legend 付き) として描画する。
+  IF その object が **root** (深さ 0) THEN THE SYSTEM SHALL fieldset/legend の囲いを
+  付けず、`<div class="form-root">` の中に子を直接並べる (root の箱と `.` legend は
+  常に全体を包むだけで冗長なため — ユーザー報告「root の囲いがややこしい」)。
+  root object 自身へのエラー (REQ-R06) は引き続きこの div 内の errbox に収容する。
 - REQ-R05: WHEN ユーザーが入力値を変更する
   THE SYSTEM SHALL `path` と新しい値で `onChange(path, value)` を呼ぶ。
 - REQ-R06: WHERE FieldNode に対応する `FieldError` が存在
@@ -61,3 +65,21 @@ coherence:
   RATIONALE: 値変更のたびにフォーム全体を作り直すと、操作中の要素 (ドラッグ中の
   slider、入力中の text の caret) が破棄され「不自然」な挙動になる (ユーザー報告)。
   入力要素の identity を保つことでライブ検証と自然な操作性を両立する。
+
+- REQ-R18: THE SYSTEM SHALL 各 leaf フィールドに位置固定の meta 行 (`.field-meta`) を
+  持たせ、`refreshFieldMeta(form, baseline, current, onReset)` で**入力を再生成せず**
+  中身だけ差し替える (REQ-R16 と同じ契約)。
+  - THE SYSTEM SHALL 常に現在値を `= <json>` として表示する (フィールドごとのライブ値)。
+  - WHERE そのフィールドの現在値が baseline (最後に保存した値) と異なる
+    THE SYSTEM SHALL 親 `.field` に `.field-dirty` を付与し、`was <前の値>` と reset
+    ボタンを表示する。reset ボタン押下で `onReset(path)` を呼ぶ。
+  - path 同定は errbox と同じく `JSON.stringify(path)` (`['a']` と `['a','b']` を混同しない)。
+  - RATIONALE: 変更フィールドの視認・変更前値の確認・ワンクリック復元 (ユーザー要望)。
+- REQ-R17: THE SYSTEM SHALL すべてのフィールド (leaf / object 問わず) のラベルに、
+  そのフィールドの **ドット記法パス** を `<code class="field-path">` として付記する。
+  - パスは root-anchored: `['server','port']` は `".server.port"`。
+  - フォーマット `dotPath(path) = path.length ? '.' + path.join('.') : '.'`。
+  - ただし root object は REQ-R04 で囲い自体を描画しないため、root の `.` タグは出さない。
+    タグが付くのは leaf フィールドとネストした object。
+  - RATIONALE: config のどの位置を編集しているかを、schema タブの `sub.hoge` 記法と
+    一貫した見た目でフォーム上でも即座に把握できる (ユーザー要望: 全フィールドにパス表示)。

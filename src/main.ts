@@ -5,10 +5,17 @@ import './style.css'
 import { parseSchema } from './core/parseSchema'
 import { validateConfig } from './core/validateConfig'
 import { parseJsonFile, serializeConfig, classifyFile } from './core/fileIo'
-import { renderForm, refreshErrors } from './core/renderForm'
+import { renderForm, refreshErrors, refreshFieldMeta } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
 import { diffConfig, type Change } from './core/diffConfig'
+import {
+  recordSave,
+  fieldHistory,
+  historyPaths,
+  type SaveHistory,
+  type FieldHistoryEntry,
+} from './core/history'
 import {
   flattenSchema,
   editSchemaField,
@@ -25,6 +32,10 @@ type State = { schema: unknown | null; config: unknown; original: unknown }
 const state: State = { schema: null, config: {}, original: {} }
 
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
+
+// Root-anchored dotted path shared with the Edit form (REQ-R17): [] -> "." ,
+// ['a','b'] -> ".a.b". Replaces the old "(root)" placeholder everywhere.
+const fmtPath = (path: readonly string[]): string => (path.length ? `.${path.join('.')}` : '.')
 
 // The diff baseline is captured post-default-seed, the FIRST time a renderable
 // (schema+config) state exists, and re-captured only when NEW external data is
@@ -44,6 +55,26 @@ function persist(): void {
     localStorage.setItem(STORE_KEY, JSON.stringify({ schema: state.schema, config: state.config }))
   } catch {
     /* storage unavailable/full — non-fatal */
+  }
+}
+
+// spec:history (REQ-H07): per-field save history, persisted across sessions.
+const HISTORY_KEY = 'jigtor:history'
+let history: SaveHistory = loadHistory()
+function loadHistory(): SaveHistory {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? (parsed as SaveHistory) : []
+  } catch {
+    return [] // corrupt storage -> empty history, never throw (REQ-H07)
+  }
+}
+function persistHistory(): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    /* non-fatal */
   }
 }
 function restoreSaved(): boolean {
@@ -80,13 +111,19 @@ app.innerHTML = `
   <nav class="tabs">
     <button class="tab active" data-tab="edit" type="button">Edit</button>
     <button class="tab" data-tab="schema" type="button">Schema</button>
+    <button class="tab" data-tab="history" type="button">History</button>
   </nav>
 
   <section id="panel-edit" class="panel">
     <p id="status" class="status"></p>
     <main id="form-host"></main>
+    <details id="config-json" class="config-json" open>
+      <summary>Live JSON preview</summary>
+      <pre id="config-preview"></pre>
+    </details>
     <footer class="save-bar">
       <button id="save" type="button">Review &amp; save…</button>
+      <span id="dirty-note" class="dirty-note" hidden></span>
     </footer>
     <div id="save-dialog" class="save-dialog" hidden></div>
   </section>
@@ -109,6 +146,11 @@ app.innerHTML = `
       </div>
     </details>
   </section>
+
+  <section id="panel-history" class="panel" hidden>
+    <p class="hint">Saved changes, grouped by field. Each entry is one export; edits are only recorded once you save.</p>
+    <div id="history-host" class="history-host"></div>
+  </section>
 `
 
 const status = app.querySelector<HTMLParagraphElement>('#status')!
@@ -119,6 +161,76 @@ const saveDialog = app.querySelector<HTMLDivElement>('#save-dialog')!
 const forgetBtn = app.querySelector<HTMLButtonElement>('#forget')!
 const schemaFields = app.querySelector<HTMLDivElement>('#schema-fields')!
 const samplePreview = app.querySelector<HTMLPreElement>('#sample-preview')!
+const saveBtn = app.querySelector<HTMLButtonElement>('#save')!
+const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
+const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
+const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
+
+// "Dirty" = the config has unexported changes since the last load/save. Derived
+// from the same diff baseline used by the save dialog; drives the save prompt.
+let isDirty = false
+function updateDirty(): void {
+  const count = state.schema === null ? 0 : diffConfig(state.original, state.config).length
+  isDirty = count > 0
+  saveBtn.textContent = isDirty ? `Review & save… (${count})` : 'Review & save…'
+  saveBtn.classList.toggle('dirty', isDirty)
+  dirtyNote.hidden = !isDirty
+  dirtyNote.textContent = isDirty ? `${count} unsaved change(s) — not exported yet` : ''
+}
+
+// Live, provisional JSON preview of the config as it is edited (user request:
+// see the actual "key": "value" update in real time, before saving).
+function renderConfigPreview(): void {
+  configPreview.textContent =
+    state.schema === null ? '' : JSON.stringify(state.config, null, 2)
+}
+
+// spec:history UI — group saved changes by field (dotted path), newest field
+// first, entries oldest→newest within each field.
+function fmtVal(v: unknown): string {
+  return v === undefined ? '∅' : JSON.stringify(v)
+}
+function fmtTime(at: number): string {
+  const d = new Date(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function historyEntryRow(e: FieldHistoryEntry): HTMLElement {
+  const li = document.createElement('li')
+  li.className = `change change-${e.kind}`
+  const detail =
+    e.kind === 'added'
+      ? `+ ${fmtVal(e.after)}`
+      : e.kind === 'removed'
+        ? `− ${fmtVal(e.before)}`
+        : `${fmtVal(e.before)} → ${fmtVal(e.after)}`
+  li.textContent = `${fmtTime(e.at)}  ${detail}`
+  return li
+}
+function renderHistoryTab(): void {
+  historyHost.replaceChildren()
+  const paths = historyPaths(history)
+  if (paths.length === 0) {
+    const p = document.createElement('p')
+    p.className = 'hint'
+    p.textContent = 'No saved changes yet. Edit a field and export to start the history.'
+    historyHost.appendChild(p)
+    return
+  }
+  for (const path of paths) {
+    const group = document.createElement('section')
+    group.className = 'history-field'
+    const h = document.createElement('code')
+    h.className = 'field-path'
+    h.textContent = fmtPath(path)
+    group.appendChild(h)
+    const list = document.createElement('ul')
+    list.className = 'change-list'
+    for (const e of fieldHistory(history, path)) list.appendChild(historyEntryRow(e))
+    group.appendChild(list)
+    historyHost.appendChild(group)
+  }
+}
 
 let currentForm: HTMLElement | null = null
 
@@ -132,14 +244,48 @@ function setAt(root: unknown, path: FieldPath, value: unknown): unknown {
   return { ...base, [head!]: setAt(base[head!], rest, value) }
 }
 
+function getAt(root: unknown, path: FieldPath): unknown {
+  let cur = root
+  for (const key of path) {
+    if (typeof cur !== 'object' || cur === null) return undefined
+    cur = (cur as Record<string, unknown>)[key]
+  }
+  return cur
+}
+
+// Immutably remove the key at `path` (used by reset when the baseline lacked it).
+function deleteAt(root: unknown, path: FieldPath): unknown {
+  if (path.length === 0) return root
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) return root
+  const [head, ...rest] = path
+  const obj = root as Record<string, unknown>
+  if (!(head! in obj)) return root
+  if (rest.length === 0) {
+    const { [head!]: _drop, ...keep } = obj
+    return keep
+  }
+  return { ...obj, [head!]: deleteAt(obj[head!], rest) }
+}
+
+// REQ-R18: revert one field to its last-saved baseline value, then rebuild the
+// form so the input reflects it (a deliberate click -> input-identity loss is fine).
+function resetField(path: FieldPath): void {
+  const base = getAt(state.original, path)
+  state.config = base === undefined ? deleteAt(state.config, path) : setAt(state.config, path, base)
+  buildForm()
+}
+
 // Live validation without rebuilding controls (REQ-R16).
 function revalidate(): void {
   if (state.schema === null || currentForm === null) return
   const result = validateConfig(state.schema, state.config)
   refreshErrors(currentForm, result.errors)
+  refreshFieldMeta(currentForm, state.original, state.config, resetField) // REQ-R18
   status.textContent = result.valid ? 'Config is valid ✓' : `${result.errors.length} validation error(s)`
   status.className = result.valid ? 'status ok' : 'status error'
   persist() // remember the latest edit state for quick recall
+  updateDirty()
+  renderConfigPreview()
 }
 
 // Structure change (schema loaded/applied/inferred, or a new config): seed
@@ -152,6 +298,8 @@ function buildForm(): void {
     status.className = 'status'
     formHost.replaceChildren()
     currentForm = null
+    updateDirty()
+    renderConfigPreview()
     return
   }
   const parsed = parseSchema(state.schema)
@@ -160,6 +308,8 @@ function buildForm(): void {
     status.className = 'status error'
     formHost.replaceChildren()
     currentForm = null
+    updateDirty()
+    renderConfigPreview()
     return
   }
   state.config = applyDefaults(parsed.root as FieldNode, state.config)
@@ -256,7 +406,7 @@ function schemaFieldRow(row: SchemaRow): HTMLElement {
   const head = document.createElement('div')
   head.className = 'schema-row-head'
   const code = document.createElement('code')
-  code.textContent = p.join('.')
+  code.textContent = fmtPath(p)
 
   const typeSel = document.createElement('select')
   for (const t of FIELD_TYPES) {
@@ -332,7 +482,7 @@ function addFieldControl(): HTMLElement {
   for (const path of objectPaths) {
     const o = document.createElement('option')
     o.value = JSON.stringify(path)
-    o.textContent = path.length ? path.join('.') : '(root)'
+    o.textContent = fmtPath(path)
     parentSel.appendChild(o)
   }
   const keyInp = document.createElement('input')
@@ -380,8 +530,10 @@ app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     app.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'))
     tab.classList.add('active')
     const target = tab.dataset.tab
-    app.querySelector('#panel-edit')!.toggleAttribute('hidden', target !== 'edit')
-    app.querySelector('#panel-schema')!.toggleAttribute('hidden', target !== 'schema')
+    app.querySelectorAll<HTMLElement>('.panel').forEach((panel) => {
+      panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
+    })
+    if (target === 'history') renderHistoryTab()
   })
 })
 
@@ -454,7 +606,7 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
 function renderChange(c: Change): HTMLElement {
   const row = document.createElement('li')
   row.className = `change change-${c.kind}`
-  const where = c.path.length ? c.path.join('.') : '(root)'
+  const where = fmtPath(c.path)
   const fmt = (v: unknown) => (v === undefined ? '∅' : JSON.stringify(v))
   const detail = c.kind === 'added' ? `+ ${fmt(c.after)}` : c.kind === 'removed' ? `− ${fmt(c.before)}` : `${fmt(c.before)} → ${fmt(c.after)}`
   row.textContent = `${c.kind.toUpperCase()}  ${where}: ${detail}`
@@ -507,8 +659,15 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
   dl.textContent = 'Download config.json'
   dl.addEventListener('click', () => {
     download()
+    // spec:history (REQ-H01): record this save's per-field changes before the
+    // baseline moves, then advance the baseline.
+    history = recordSave(history, state.original, state.config, Date.now())
+    persistHistory()
+    renderHistoryTab()
     state.original = clone(state.config) // new baseline after a save
     saveDialog.hidden = true
+    updateDirty()
+    revalidate() // clear per-field dirty decoration now that everything is saved
   })
   const cancel = document.createElement('button')
   cancel.type = 'button'
@@ -534,9 +693,18 @@ forgetBtn.addEventListener('click', () => {
   status.textContent = 'Cleared saved session.'
 })
 
+// Prompt before leaving with unexported changes.
+window.addEventListener('beforeunload', (e) => {
+  if (isDirty) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+})
+
 // ---- startup: restore the last session if present ----
 const restored = restoreSaved()
 buildForm()
+renderHistoryTab() // show persisted save history from previous sessions
 if (restored) {
   forgetBtn.hidden = false
   status.textContent = 'Restored your last session — load a file to start fresh.'

@@ -1,97 +1,264 @@
+/* jigtor — modern, minimal, theme-aware (light-dark()) design tokens. */
 :root {
   color-scheme: light dark;
   font-family: system-ui, -apple-system, sans-serif;
   line-height: 1.5;
+
+  --bg: light-dark(#f7f8fa, #16181d);
+  --surface: light-dark(#ffffff, #1e2128);
+  --surface-2: light-dark(#f0f2f5, #24272f);
+  --border: light-dark(#e2e5ea, #333843);
+  --border-strong: light-dark(#c7ccd6, #454b57);
+  --text: light-dark(#1a1d23, #e6e8ec);
+  --muted: light-dark(#6b7280, #9aa2af);
+  --accent: light-dark(#2f6bff, #6d9bff);
+  --accent-soft: light-dark(rgba(47, 107, 255, 0.1), rgba(109, 155, 255, 0.14));
+  --ok: light-dark(#1a8f3c, #4ade80);
+  --err: light-dark(#d3383d, #f87171);
+  --warn: light-dark(#b06d00, #e0a72a);
+  --warn-soft: light-dark(rgba(176, 109, 0, 0.1), rgba(224, 167, 42, 0.14));
+  --radius: 10px;
+  --radius-sm: 7px;
+}
+* {
+  box-sizing: border-box;
 }
 body {
-  margin: 0;
-  padding: 2rem;
-  max-width: 720px;
   margin-inline: auto;
+  padding: 2.5rem 1.5rem 3rem;
+  max-width: 760px;
+  background: var(--bg);
+  color: var(--text);
 }
+
+/* ---- header ---- */
 header h1 {
   margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
 }
 header p {
-  color: #888;
+  color: var(--muted);
   margin-top: 0.25rem;
 }
+
+/* ---- shared controls ---- */
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+.tab:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+button {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.12s, border-color 0.12s;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- drop zone ---- */
 .drop {
   display: flex;
   gap: 0.75rem;
   align-items: center;
-  border: 2px dashed #888;
-  border-radius: 8px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
   padding: 1rem;
   margin: 1rem 0;
+  background: var(--surface);
 }
 .drop.dragover {
-  border-color: #3a86ff;
-  background: rgba(58, 134, 255, 0.08);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .filebtn {
-  border: 1px solid currentColor;
-  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.8rem;
   cursor: pointer;
 }
 .hint {
-  color: #888;
+  color: var(--muted);
 }
 .status.ok {
-  color: #2a9d3a;
+  color: var(--ok);
 }
 .status.error {
-  color: #e5484d;
+  color: var(--err);
 }
+
+/* ---- form ---- */
+.form-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+/* Nested object = a clearly delineated section: accent bar + pill title. */
 fieldset {
-  border: 1px solid #8884;
-  border-radius: 8px;
-  margin: 0.75rem 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  margin: 1.4rem 0;
+  padding: 0.85rem 1rem 1rem;
+  background: var(--surface);
+  box-shadow: 0 1px 2px light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.28));
 }
+/* sections nested inside sections step down in accent weight for hierarchy */
+fieldset fieldset {
+  border-left-color: var(--border-strong);
+}
+legend {
+  padding: 0.15rem 0.6rem;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+legend .field-name {
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+/* Each field is a clearly separated row: left accent rail + hairline divider,
+   so adjacent fields (root-level included) never blur together. */
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  margin: 0.6rem 0;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.75rem 0.25rem 0.75rem 0.75rem;
+  border-left: 2px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transition: border-color 0.12s, background 0.12s;
 }
-.field label {
+.field:last-child {
+  border-bottom: none;
+}
+.field:hover,
+.field:focus-within {
+  border-left-color: var(--accent);
+  background: light-dark(rgba(47, 107, 255, 0.03), rgba(109, 155, 255, 0.05));
+}
+.field label,
+legend {
   font-weight: 600;
 }
+.field label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+/* Field name stands out; the dotted-path chip stays quiet beside it. */
+.field-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+/* REQ-R17: dotted-path chip shown on every field */
+.field-path {
+  font: 0.72rem/1.3 ui-monospace, monospace;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.05rem 0.35rem;
+}
 .field input,
-.field select {
-  padding: 0.35rem;
-  border-radius: 6px;
-  border: 1px solid #8886;
+.field select,
+.field textarea {
+  width: 100%;
+}
+.field textarea {
+  min-height: 4rem;
+  resize: vertical;
 }
 .field-description {
-  color: #888;
+  color: var(--muted);
   font-size: 0.85rem;
   margin: 0;
 }
+/* REQ-R18: per-field meta row — live value + (when changed) previous value + reset. */
+.field-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font: 0.78rem/1.4 ui-monospace, monospace;
+}
+.field-meta .fv {
+  color: var(--muted);
+}
+.field-meta .fv-was {
+  color: var(--warn);
+}
+.field-meta .fv-reset {
+  padding: 0.05rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  border-color: var(--warn);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+/* changed-since-save field: accent the rail + name so it stands out */
+.field.field-dirty {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+.field.field-dirty .field-name {
+  color: var(--warn);
+}
 .field-error {
-  color: #e5484d;
+  color: var(--err);
   font-size: 0.85rem;
   margin: 0;
 }
 .form-errors {
   margin-top: 1rem;
   padding: 0.75rem;
-  border: 1px solid #e5484d;
-  border-radius: 8px;
-  background: rgba(229, 72, 77, 0.08);
+  border: 1px solid var(--err);
+  border-radius: var(--radius);
+  background: light-dark(rgba(211, 56, 61, 0.07), rgba(248, 113, 113, 0.1));
+}
+.field-array,
+.field-unknown .field-array {
+  background: var(--surface-2);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  overflow: auto;
 }
 .field-unknown .field-array {
-  opacity: 0.7;
+  opacity: 0.75;
 }
-.field textarea {
-  padding: 0.35rem;
-  border-radius: 6px;
-  border: 1px solid #8886;
-  font-family: inherit;
-  min-height: 4rem;
-  resize: vertical;
-}
+
+/* ---- radios / slider / toggle ---- */
 .field-radios {
   display: flex;
   flex-wrap: wrap;
@@ -100,7 +267,7 @@ fieldset {
 .radio-option {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
   font-weight: 400;
 }
 .field-slider {
@@ -110,22 +277,33 @@ fieldset {
 }
 .field-slider input[type='range'] {
   flex: 1;
+  accent-color: var(--accent);
+  padding: 0;
+  border: none;
+  background: none;
 }
 .field-slider input[type='number'] {
   width: 6rem;
 }
+input[type='checkbox']:not(.toggle),
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: auto;
+}
 input.toggle {
+  appearance: none;
   width: 2.4rem;
   height: 1.4rem;
-  appearance: none;
-  background: #8886;
+  padding: 0;
+  background: var(--border-strong);
+  border: none;
   border-radius: 999px;
   position: relative;
   cursor: pointer;
   transition: background 0.15s;
 }
 input.toggle:checked {
-  background: #2a9d3a;
+  background: var(--ok);
 }
 input.toggle::after {
   content: '';
@@ -141,11 +319,13 @@ input.toggle::after {
 input.toggle:checked::after {
   transform: translateX(1rem);
 }
+
+/* ---- tabs ---- */
 .tabs {
   display: flex;
   gap: 0.25rem;
-  border-bottom: 1px solid #8884;
-  margin: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  margin: 1.25rem 0;
 }
 .tab {
   background: none;
@@ -154,20 +334,40 @@ input.toggle:checked::after {
   border-radius: 0;
   padding: 0.5rem 1rem;
   font-weight: 600;
-  color: #888;
+  color: var(--muted);
+}
+.tab:hover {
+  color: var(--text);
 }
 .tab.active {
-  color: inherit;
-  border-bottom-color: #3a86ff;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
+
+/* ---- save bar / dirty state (REQ: prompt on unsaved changes) ---- */
 .save-bar {
   margin-top: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+#save.dirty {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 600;
+}
+.dirty-note {
+  color: var(--warn);
+  font-size: 0.85rem;
 }
 .save-dialog {
   margin-top: 1rem;
   padding: 1rem;
-  border: 1px solid #8886;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .save-dialog h3 {
   margin: 0 0 0.5rem;
@@ -184,29 +384,32 @@ input.toggle:checked::after {
   border-radius: 4px;
 }
 .change-added {
-  color: #2a9d3a;
+  color: var(--ok);
 }
 .change-removed {
-  color: #e5484d;
+  color: var(--err);
 }
 .change-changed {
-  color: #b07d00;
+  color: var(--warn);
 }
+
+/* ---- schema editor ---- */
 .schema-cols {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
 }
-@media (min-width: 700px) {
+@media (min-width: 720px) {
   .schema-cols {
     grid-template-columns: 1.6fr 1fr;
   }
 }
 .schema-row {
-  border: 1px solid #8884;
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.7rem;
   margin-bottom: 0.5rem;
+  background: var(--surface);
 }
 .schema-row-head {
   display: flex;
@@ -218,18 +421,22 @@ input.toggle:checked::after {
   font-weight: 600;
   flex: 1;
   min-width: 6rem;
+  color: var(--accent);
 }
 .schema-req {
   font-weight: 400;
   font-size: 0.85rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.25rem;
 }
 .schema-rm {
-  color: #e5484d;
-  border-color: currentColor;
+  color: var(--err);
+  border-color: var(--border);
   padding: 0.1rem 0.5rem;
+}
+.schema-rm:hover:not(:disabled) {
+  border-color: var(--err);
 }
 .schema-cons {
   display: flex;
@@ -241,13 +448,10 @@ input.toggle:checked::after {
   display: inline-flex;
   flex-direction: column;
   font-size: 0.72rem;
-  color: #888;
-  gap: 0.1rem;
+  color: var(--muted);
+  gap: 0.15rem;
 }
 .schema-con input {
-  padding: 0.25rem;
-  border-radius: 5px;
-  border: 1px solid #8886;
   font-size: 0.8rem;
   width: 8rem;
 }
@@ -261,15 +465,15 @@ input.toggle:checked::after {
   align-items: center;
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px dashed #8886;
+  border-top: 1px dashed var(--border);
 }
 .schema-preview h4 {
   margin: 0 0 0.4rem;
 }
 #sample-preview {
-  background: #8881;
+  background: var(--surface-2);
   padding: 0.6rem;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 0.8rem;
   overflow: auto;
   max-height: 60vh;
@@ -279,17 +483,13 @@ input.toggle:checked::after {
 }
 #raw-schema summary {
   cursor: pointer;
-  color: #888;
+  color: var(--muted);
 }
 #schema-editor {
   width: 100%;
-  box-sizing: border-box;
   font-family: ui-monospace, monospace;
   font-size: 0.85rem;
   margin-top: 0.5rem;
-  border-radius: 6px;
-  border: 1px solid #8886;
-  padding: 0.5rem;
 }
 .schema-actions {
   display: flex;
@@ -297,20 +497,39 @@ input.toggle:checked::after {
   align-items: center;
   margin-top: 0.5rem;
 }
-.field-array {
-  background: #8881;
-  padding: 0.5rem;
-  border-radius: 6px;
+/* ---- live JSON preview (Edit tab) ---- */
+.config-json {
+  margin-top: 1rem;
 }
+.config-json summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+#config-preview {
+  background: var(--surface-2);
+  padding: 0.6rem;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  overflow: auto;
+  max-height: 40vh;
+  margin-top: 0.5rem;
+}
+
+/* ---- history (per field) ---- */
+.history-field {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.7rem;
+  background: var(--surface);
+}
+.history-field > .field-path {
+  display: inline-block;
+  margin-bottom: 0.4rem;
+}
+
 footer {
   margin-top: 1.5rem;
-}
-button {
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

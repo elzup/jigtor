@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { renderForm, refreshErrors } from '../src/core/renderForm'
+import { renderForm, refreshErrors, refreshFieldMeta } from '../src/core/renderForm'
 import { parseSchema } from '../src/core/parseSchema'
 import type { FieldError } from '../src/core/types'
 
@@ -78,10 +78,15 @@ describe('spec:renderer', () => {
     expect(el.querySelector('input[type="checkbox"]')).toBeTruthy()
   })
 
-  test('REQ-R04: object -> nested fieldset', () => {
+  test('REQ-R04: nested object -> fieldset; root is flattened (no enclosing box)', () => {
     const { el } = build(schema, {})
-    const fs = el.querySelector('fieldset fieldset')
+    // root renders as a plain container, not a fieldset/legend box
+    expect(el.querySelector('.form-root')).toBeTruthy()
+    expect(el.querySelector('fieldset > legend')).toBeTruthy() // the `nested` object
+    // the `nested` object IS a fieldset, and it is NOT wrapped in another fieldset
+    const fs = el.querySelector('fieldset')
     expect(fs).toBeTruthy()
+    expect(fs!.closest('fieldset')).toBe(fs) // no fieldset ancestor -> root flattened
   })
 
   test('REQ-R05: editing a field calls onChange(path, value)', () => {
@@ -263,6 +268,59 @@ describe('spec:renderer', () => {
     const { el } = build(schema, {}, [{ path: ['key'], message: 'is required' }])
     // rendered next to the field, not in the orphan summary
     expect(el.querySelector('.form-errors')).toBeNull()
+  })
+
+  test('REQ-R17: every field label carries its dotted path (leaf + nested + object)', () => {
+    const { el } = build(schema, {})
+    const paths = Array.from(el.querySelectorAll('code.field-path')).map((c) => c.textContent)
+    // leaf at root, nested leaf, and the nested object itself are all annotated
+    expect(paths).toContain('.key')
+    expect(paths).toContain('.nested')
+    expect(paths).toContain('.nested.flag')
+    // root is flattened (REQ-R04) -> no "." tag is emitted for it
+    expect(paths).not.toContain('.')
+    // the path tag lives inside the label, not replacing the field name
+    const keyLabel = Array.from(el.querySelectorAll('label')).find((l) =>
+      l.querySelector('.field-name')?.textContent?.includes('key'),
+    )!
+    expect(keyLabel.querySelector('code.field-path')?.textContent).toBe('.key')
+  })
+
+  test('REQ-R18: field-meta shows live value; dirty field gets before-value + reset', () => {
+    const { el } = build(schema, { key: 'now', max: 3 })
+    // baseline differs at .key (was 'orig') and .max (was 1); .max unchanged in `current`? make key dirty
+    refreshFieldMeta(el, { key: 'orig', max: 3 }, { key: 'now', max: 3 }, () => {})
+    const keyMeta = el.querySelector('.field-meta[data-metapath="[\\"key\\"]"]') as HTMLElement
+    // live value chip always present
+    expect(keyMeta.querySelector('.fv')?.textContent).toBe('= "now"')
+    // dirty: before value + reset button, and the .field is marked
+    expect(keyMeta.querySelector('.fv-was')?.textContent).toBe('was "orig"')
+    expect(keyMeta.querySelector('.fv-reset')).toBeTruthy()
+    expect(keyMeta.closest('.field')!.classList.contains('field-dirty')).toBe(true)
+    // unchanged field: value chip only, no dirty decoration
+    const maxMeta = el.querySelector('.field-meta[data-metapath="[\\"max\\"]"]') as HTMLElement
+    expect(maxMeta.querySelector('.fv')?.textContent).toBe('= 3')
+    expect(maxMeta.querySelector('.fv-was')).toBeNull()
+    expect(maxMeta.closest('.field')!.classList.contains('field-dirty')).toBe(false)
+  })
+
+  test('REQ-R18: reset button fires onReset(path)', () => {
+    const { el } = build(schema, { key: 'now' })
+    const resets: string[][] = []
+    refreshFieldMeta(el, { key: 'orig' }, { key: 'now' }, (p) => resets.push(p))
+    const btn = el.querySelector('.field-meta[data-metapath="[\\"key\\"]"] .fv-reset') as HTMLButtonElement
+    btn.click()
+    expect(resets).toEqual([['key']])
+  })
+
+  test('REQ-R18: refreshFieldMeta is idempotent (clears stale dirty on re-run)', () => {
+    const { el } = build(schema, { key: 'now' })
+    refreshFieldMeta(el, { key: 'orig' }, { key: 'now' }, () => {})
+    // now everything matches baseline -> dirty must clear
+    refreshFieldMeta(el, { key: 'now' }, { key: 'now' }, () => {})
+    const keyMeta = el.querySelector('.field-meta[data-metapath="[\\"key\\"]"]') as HTMLElement
+    expect(keyMeta.querySelector('.fv-was')).toBeNull()
+    expect(keyMeta.closest('.field')!.classList.contains('field-dirty')).toBe(false)
   })
 
   test('REQ-R08 (FIND-R3-002): unknown placeholder still shows author description', () => {
