@@ -1,5 +1,24 @@
 # VCSDD Convergence Record — config-editor (jigtor V1 core)
 
+**Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX) + 2 (schema editor)
+
+## Cycle 4 — structured schema editor + sample preview
+
+CONVERGED after R10→R11. Added:
+
+| Spec node | REQs | Impl | Tests |
+|-----------|------|------|-------|
+| spec:schema-edit | SE01–SE09 | src/core/schemaEdit.ts | tests/schemaEdit.test.ts (13) + PROP-SE01/02 |
+| (UI) | structured Schema tab + live sample preview | src/main.ts | — |
+
+- `flattenSchema`/`editSchemaField`/`addSchemaField`/`removeSchemaField` edit the schema as flat `sub.hoge` field rows (type/default/validation/required), immutably.
+- `sampleFromSchema` builds a live sample-config preview; the sample is kept valid (enum reconciled with sibling constraints, required-absent filled, minItems honored) — invalid author `default` is best-effort.
+- Schema tab: per-field controls + Add/Remove field + sample JSON preview; raw JSON kept behind a toggle. Schema edits preserve the diff baseline (in-session).
+
+Adversary R10 caught invalid-sample generation (2 HIGH incl. the vacuous test that hid it) → fixed; R11 PASS. 118 tests green; build 45.5 KB gzip.
+
+---
+
 **Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX)
 
 ## Cycle 3 — UX (diff/save, tabs, radio, widget jank fix, session recall)

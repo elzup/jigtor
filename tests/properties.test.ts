@@ -7,6 +7,12 @@ import { parseJsonFile, serializeConfig } from '../src/core/fileIo'
 import { inferSchema } from '../src/core/inferSchema'
 import { applyDefaults } from '../src/core/applyDefaults'
 import { diffConfig, type Change } from '../src/core/diffConfig'
+import {
+  editSchemaField,
+  addSchemaField,
+  removeSchemaField,
+  sampleFromSchema,
+} from '../src/core/schemaEdit'
 
 // Object keys: exclude __proto__/constructor/prototype — assigning those via a
 // generated object mangles the prototype instead of creating a normal config
@@ -219,6 +225,63 @@ describe('schema-infer / defaults meta-properties', () => {
         for (const c of changes) applyChange(rebuilt, c)
         expect(rebuilt).toEqual(after)
       }),
+    )
+  })
+
+  test('PROP-SE01: schema-edit ops never mutate the input schema & keep it parseable', () => {
+    fc.assert(
+      fc.property(objectConfig, (config) => {
+        const schema = inferSchema(config)
+        const snapshot = JSON.parse(JSON.stringify(schema))
+        editSchemaField(schema, ['nope'], { type: 'string' })
+        addSchemaField(schema, [], 'newField', 'boolean')
+        removeSchemaField(schema, ['whatever'])
+        expect(schema).toEqual(snapshot) // no mutation of input
+        // an added field yields a still-parseable schema
+        const added = addSchemaField(schema, [], 'zzz', 'string')
+        expect(parseSchema(added).ok).toBe(true)
+      }),
+      { numRuns: 40 },
+    )
+  })
+
+  test('PROP-SE02: sampleFromSchema output validates even for CONSTRAINED schemas', () => {
+    // Hand-built schemas carrying the constraint classes inferSchema never emits
+    // (enum+minimum, minLength, minItems, required-absent-from-properties), so
+    // this actually exercises the validity reconciliation (R10 regression lock).
+    const leaf = fc.oneof(
+      fc.record({ type: fc.constant('integer'), minimum: fc.integer({ min: 1, max: 50 }) }),
+      // enum + minimum, kept SATISFIABLE: every enum value is >= the minimum.
+      fc.integer({ min: 0, max: 50 }).chain((m) =>
+        fc.record({
+          type: fc.constant('integer'),
+          // unique enum values (JSON Schema forbids duplicates), all >= minimum.
+          enum: fc.uniqueArray(fc.integer({ min: m, max: m + 50 }), { minLength: 1, maxLength: 4 }),
+          minimum: fc.constant(m),
+        }),
+      ),
+      fc.record({ type: fc.constant('string'), minLength: fc.integer({ min: 1, max: 12 }) }),
+      fc.record({
+        type: fc.constant('array'),
+        items: fc.constant({ type: 'string' }),
+        minItems: fc.integer({ min: 0, max: 4 }),
+      }),
+      fc.record({ type: fc.constant('boolean') }),
+    )
+    const constrainedSchema = fc
+      .dictionary(safeKey, leaf, { minKeys: 1, maxKeys: 5 })
+      .chain((properties) =>
+        fc
+          .subarray(Object.keys(properties))
+          .map((required) => ({ type: 'object', properties, required })),
+      )
+    fc.assert(
+      fc.property(constrainedSchema, (schema) => {
+        expect(() => sampleFromSchema(schema)).not.toThrow()
+        const sample = sampleFromSchema(schema)
+        expect(validateConfig(schema, sample).valid).toBe(true)
+      }),
+      { numRuns: 60 },
     )
   })
 

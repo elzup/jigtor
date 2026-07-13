@@ -9,7 +9,17 @@ import { renderForm, refreshErrors } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
 import { diffConfig, type Change } from './core/diffConfig'
+import {
+  flattenSchema,
+  editSchemaField,
+  addSchemaField,
+  removeSchemaField,
+  sampleFromSchema,
+  type SchemaRow,
+} from './core/schemaEdit'
 import type { FieldNode, FieldPath } from './core/types'
+
+const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const
 
 type State = { schema: unknown | null; config: unknown; original: unknown }
 const state: State = { schema: null, config: {}, original: {} }
@@ -82,12 +92,22 @@ app.innerHTML = `
   </section>
 
   <section id="panel-schema" class="panel" hidden>
-    <p class="hint">Edit the JSON Schema directly, then apply. "Generate schema from config" seeds this from a config that ships without one.</p>
-    <textarea id="schema-editor" spellcheck="false" rows="16"></textarea>
-    <div class="schema-actions">
-      <button id="apply-schema" type="button">Apply schema</button>
-      <span id="schema-msg" class="hint"></span>
+    <p class="hint">Edit each field's type, default and validation. Add or remove fields. "Generate schema from config" seeds this from a config that ships without one.</p>
+    <div class="schema-cols">
+      <div id="schema-fields" class="schema-fields"></div>
+      <div class="schema-preview">
+        <h4>Sample config preview</h4>
+        <pre id="sample-preview"></pre>
+      </div>
     </div>
+    <details id="raw-schema">
+      <summary>Raw JSON</summary>
+      <textarea id="schema-editor" spellcheck="false" rows="12"></textarea>
+      <div class="schema-actions">
+        <button id="apply-schema" type="button">Apply raw JSON</button>
+        <span id="schema-msg" class="hint"></span>
+      </div>
+    </details>
   </section>
 `
 
@@ -97,6 +117,8 @@ const schemaEditor = app.querySelector<HTMLTextAreaElement>('#schema-editor')!
 const schemaMsg = app.querySelector<HTMLSpanElement>('#schema-msg')!
 const saveDialog = app.querySelector<HTMLDivElement>('#save-dialog')!
 const forgetBtn = app.querySelector<HTMLButtonElement>('#forget')!
+const schemaFields = app.querySelector<HTMLDivElement>('#schema-fields')!
+const samplePreview = app.querySelector<HTMLPreElement>('#sample-preview')!
 
 let currentForm: HTMLElement | null = null
 
@@ -124,6 +146,7 @@ function revalidate(): void {
 // defaults, build the form once, sync the schema editor, validate.
 function buildForm(): void {
   saveDialog.hidden = true
+  renderSchemaTab() // keep the structured schema editor + sample preview in sync
   if (state.schema === null) {
     status.textContent = 'Load a schema (or generate one from a config) to start editing.'
     status.className = 'status'
@@ -179,6 +202,176 @@ function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): voi
   const kind = forceKind ?? classifyFile(name, parsed.value)
   if (kind === 'schema') loadSchema(parsed.value)
   else loadConfig(parsed.value)
+}
+
+// ---- structured schema editor (Schema tab) ----
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const parseDefault = (raw: string): unknown => {
+  const t = raw.trim()
+  if (t === '') return undefined
+  try {
+    return JSON.parse(t)
+  } catch {
+    return raw
+  }
+}
+const numOrUndef = (raw: string): number | undefined => {
+  const t = raw.trim()
+  if (t === '') return undefined
+  const n = Number(t)
+  return Number.isNaN(n) ? undefined : n
+}
+const strOrUndef = (raw: string): string | undefined => (raw.trim() === '' ? undefined : raw)
+
+// A schema edit is an in-session change: keep the diff baseline (no markNewData).
+const commitSchema = (next: unknown): void => {
+  state.schema = next
+  buildForm()
+}
+
+function conInput(
+  label: string,
+  value: unknown,
+  onCommit: (raw: string) => void,
+  inputType = 'text',
+): HTMLElement {
+  const wrap = document.createElement('label')
+  wrap.className = 'schema-con'
+  const inp = document.createElement('input')
+  inp.type = inputType
+  inp.placeholder = label
+  if (value !== undefined) inp.value = String(value)
+  inp.addEventListener('change', () => onCommit(inp.value)) // commit on blur/enter, not per-keystroke
+  wrap.append(document.createTextNode(label), inp)
+  return wrap
+}
+
+function schemaFieldRow(row: SchemaRow): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'schema-row'
+  const p = row.path
+
+  const head = document.createElement('div')
+  head.className = 'schema-row-head'
+  const code = document.createElement('code')
+  code.textContent = p.join('.')
+
+  const typeSel = document.createElement('select')
+  for (const t of FIELD_TYPES) {
+    const o = document.createElement('option')
+    o.value = t
+    o.textContent = t
+    typeSel.appendChild(o)
+  }
+  typeSel.value = row.type
+  typeSel.addEventListener('change', () =>
+    commitSchema(editSchemaField(state.schema, p, { type: typeSel.value })),
+  )
+
+  const reqLabel = document.createElement('label')
+  reqLabel.className = 'schema-req'
+  const reqCb = document.createElement('input')
+  reqCb.type = 'checkbox'
+  reqCb.checked = row.required
+  reqCb.addEventListener('change', () =>
+    commitSchema(editSchemaField(state.schema, p, { required: reqCb.checked })),
+  )
+  reqLabel.append(reqCb, document.createTextNode(' req'))
+
+  const rm = document.createElement('button')
+  rm.type = 'button'
+  rm.className = 'schema-rm'
+  rm.textContent = '✕'
+  rm.addEventListener('click', () => commitSchema(removeSchemaField(state.schema, p)))
+
+  head.append(code, typeSel, reqLabel, rm)
+  el.appendChild(head)
+
+  const cons = document.createElement('div')
+  cons.className = 'schema-cons'
+  if (row.type !== 'object') {
+    cons.appendChild(
+      conInput('default', row.default === undefined ? '' : JSON.stringify(row.default), (v) =>
+        commitSchema(editSchemaField(state.schema, p, { default: parseDefault(v) })),
+      ),
+    )
+  }
+  if (row.type === 'number' || row.type === 'integer') {
+    cons.appendChild(conInput('min', row.minimum, (v) => commitSchema(editSchemaField(state.schema, p, { minimum: numOrUndef(v) })), 'number'))
+    cons.appendChild(conInput('max', row.maximum, (v) => commitSchema(editSchemaField(state.schema, p, { maximum: numOrUndef(v) })), 'number'))
+  }
+  if (row.type === 'string') {
+    cons.appendChild(conInput('minLen', row.minLength, (v) => commitSchema(editSchemaField(state.schema, p, { minLength: numOrUndef(v) })), 'number'))
+    cons.appendChild(conInput('maxLen', row.maxLength, (v) => commitSchema(editSchemaField(state.schema, p, { maxLength: numOrUndef(v) })), 'number'))
+    cons.appendChild(conInput('pattern', row.pattern, (v) => commitSchema(editSchemaField(state.schema, p, { pattern: strOrUndef(v) }))))
+  }
+  if (row.type === 'string' || row.type === 'number' || row.type === 'integer') {
+    const enumStr = Array.isArray(row.enum) ? row.enum.map((x) => String(x)).join(', ') : ''
+    const numeric = row.type !== 'string'
+    cons.appendChild(
+      conInput('enum (a, b)', enumStr, (v) => {
+        const parts = v.split(',').map((s) => s.trim()).filter((s) => s !== '')
+        const en = parts.length === 0 ? undefined : numeric ? parts.map(Number) : parts
+        commitSchema(editSchemaField(state.schema, p, { enum: en }))
+      }),
+    )
+  }
+  cons.appendChild(conInput('description', row.description, (v) => commitSchema(editSchemaField(state.schema, p, { description: strOrUndef(v) }))))
+  el.appendChild(cons)
+  return el
+}
+
+function addFieldControl(): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'schema-add'
+  const rows = flattenSchema(state.schema)
+  const objectPaths: string[][] = [[], ...rows.filter((r) => r.type === 'object').map((r) => r.path)]
+  const parentSel = document.createElement('select')
+  for (const path of objectPaths) {
+    const o = document.createElement('option')
+    o.value = JSON.stringify(path)
+    o.textContent = path.length ? path.join('.') : '(root)'
+    parentSel.appendChild(o)
+  }
+  const keyInp = document.createElement('input')
+  keyInp.placeholder = 'new key'
+  const typeSel = document.createElement('select')
+  for (const t of FIELD_TYPES) {
+    const o = document.createElement('option')
+    o.value = t
+    o.textContent = t
+    typeSel.appendChild(o)
+  }
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.textContent = '+ Add field'
+  btn.addEventListener('click', () => {
+    const key = keyInp.value.trim()
+    if (key === '') return
+    const parent = JSON.parse(parentSel.value) as string[]
+    commitSchema(addSchemaField(state.schema, parent, key, typeSel.value))
+  })
+  wrap.append(parentSel, keyInp, typeSel, btn)
+  return wrap
+}
+
+function renderSchemaTab(): void {
+  if (!isPlainObject(state.schema)) {
+    const hint = document.createElement('p')
+    hint.className = 'hint'
+    hint.textContent = 'No schema yet — load one, or "Generate schema from config".'
+    schemaFields.replaceChildren(hint)
+    samplePreview.textContent = ''
+    return
+  }
+  const rows = flattenSchema(state.schema)
+  const frag = document.createDocumentFragment()
+  for (const row of rows) frag.appendChild(schemaFieldRow(row))
+  frag.appendChild(addFieldControl())
+  schemaFields.replaceChildren(frag)
+  samplePreview.textContent = JSON.stringify(sampleFromSchema(state.schema), null, 2)
 }
 
 // ---- tabs ----
