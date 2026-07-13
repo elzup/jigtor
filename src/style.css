@@ -141,12 +141,56 @@ input.toggle::after {
 input.toggle:checked::after {
   transform: translateX(1rem);
 }
-#schema-panel {
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #8884;
   margin: 1rem 0;
 }
-#schema-panel summary {
-  cursor: pointer;
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.5rem 1rem;
   font-weight: 600;
+  color: #888;
+}
+.tab.active {
+  color: inherit;
+  border-bottom-color: #3a86ff;
+}
+.save-bar {
+  margin-top: 1.5rem;
+}
+.save-dialog {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #8886;
+  border-radius: 8px;
+}
+.save-dialog h3 {
+  margin: 0 0 0.5rem;
+}
+.change-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+.change {
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+.change-added {
+  color: #2a9d3a;
+}
+.change-removed {
+  color: #e5484d;
+}
+.change-changed {
+  color: #b07d00;
 }
 #schema-editor {
   width: 100%;

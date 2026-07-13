@@ -1,56 +1,104 @@
-// UI shell: file loading (picker + drag/drop), form rendering, validation,
-// schema inference/adjustment, default seeding, export.
-// All schema/validation/render/infer/defaults logic lives in ./core (pure & tested).
+// UI shell: loading, tabbed views (Edit | Schema), in-place live validation,
+// schema inference/adjustment, default seeding, diff-confirmed export.
+// All schema/validate/render/infer/defaults/diff logic lives in ./core (tested).
 import './style.css'
 import { parseSchema } from './core/parseSchema'
 import { validateConfig } from './core/validateConfig'
 import { parseJsonFile, serializeConfig, classifyFile } from './core/fileIo'
-import { renderForm } from './core/renderForm'
+import { renderForm, refreshErrors } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
-import type { FieldPath } from './core/types'
+import { diffConfig, type Change } from './core/diffConfig'
+import type { FieldNode, FieldPath } from './core/types'
 
-type State = {
-  schema: unknown | null
-  config: unknown
+type State = { schema: unknown | null; config: unknown; original: unknown }
+const state: State = { schema: null, config: {}, original: {} }
+
+const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
+
+// The diff baseline is captured post-default-seed, the FIRST time a renderable
+// (schema+config) state exists, and re-captured only when NEW external data is
+// loaded (file/example) — never on an in-session schema apply/infer, so user
+// edits made before a schema tweak survive in the review diff (FIND-R8 fix).
+let baselineEstablished = false
+const markNewData = (): void => {
+  baselineEstablished = false
 }
 
-const state: State = { schema: null, config: {} }
+// Session persistence: remember the last loaded/edited schema+config in
+// localStorage so reopening the page restores it (user request: quickly recall
+// the last file).
+const STORE_KEY = 'jigtor:last-session'
+function persist(): void {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ schema: state.schema, config: state.config }))
+  } catch {
+    /* storage unavailable/full — non-fatal */
+  }
+}
+function restoreSaved(): boolean {
+  try {
+    const raw = localStorage.getItem(STORE_KEY)
+    if (!raw) return false
+    const saved = JSON.parse(raw) as { schema?: unknown; config?: unknown }
+    if (saved.schema == null) return false
+    state.schema = saved.schema
+    state.config = saved.config ?? {}
+    markNewData()
+    return true
+  } catch {
+    return false
+  }
+}
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
 app.innerHTML = `
   <header>
     <h1>jigtor</h1>
-    <p>Load a JSON Schema + config, edit safely, export valid config.</p>
+    <p>Load a schema + config, edit safely, review the diff, export.</p>
   </header>
   <section id="drop" class="drop">
     <label class="filebtn">schema<input type="file" id="schema-input" accept=".json" hidden></label>
     <label class="filebtn">config<input type="file" id="config-input" accept=".json" hidden></label>
     <button id="infer-schema" class="filebtn" type="button">Generate schema from config</button>
     <button id="load-example" class="filebtn" type="button">Load example</button>
+    <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
     <span class="hint">or drag &amp; drop files here</span>
   </section>
-  <p id="status" class="status"></p>
-  <main id="form-host"></main>
-  <details id="schema-panel">
-    <summary>Schema (edit &amp; adjust)</summary>
-    <textarea id="schema-editor" spellcheck="false" rows="12"></textarea>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="edit" type="button">Edit</button>
+    <button class="tab" data-tab="schema" type="button">Schema</button>
+  </nav>
+
+  <section id="panel-edit" class="panel">
+    <p id="status" class="status"></p>
+    <main id="form-host"></main>
+    <footer class="save-bar">
+      <button id="save" type="button">Review &amp; save…</button>
+    </footer>
+    <div id="save-dialog" class="save-dialog" hidden></div>
+  </section>
+
+  <section id="panel-schema" class="panel" hidden>
+    <p class="hint">Edit the JSON Schema directly, then apply. "Generate schema from config" seeds this from a config that ships without one.</p>
+    <textarea id="schema-editor" spellcheck="false" rows="16"></textarea>
     <div class="schema-actions">
       <button id="apply-schema" type="button">Apply schema</button>
       <span id="schema-msg" class="hint"></span>
     </div>
-  </details>
-  <footer>
-    <button id="export" disabled>Download config</button>
-  </footer>
+  </section>
 `
 
 const status = app.querySelector<HTMLParagraphElement>('#status')!
 const formHost = app.querySelector<HTMLElement>('#form-host')!
-const exportBtn = app.querySelector<HTMLButtonElement>('#export')!
 const schemaEditor = app.querySelector<HTMLTextAreaElement>('#schema-editor')!
 const schemaMsg = app.querySelector<HTMLSpanElement>('#schema-msg')!
+const saveDialog = app.querySelector<HTMLDivElement>('#save-dialog')!
+const forgetBtn = app.querySelector<HTMLButtonElement>('#forget')!
+
+let currentForm: HTMLElement | null = null
 
 function setAt(root: unknown, path: FieldPath, value: unknown): unknown {
   if (path.length === 0) return value
@@ -62,38 +110,62 @@ function setAt(root: unknown, path: FieldPath, value: unknown): unknown {
   return { ...base, [head!]: setAt(base[head!], rest, value) }
 }
 
-function rerender(): void {
-  if (state.schema === null) return
+// Live validation without rebuilding controls (REQ-R16).
+function revalidate(): void {
+  if (state.schema === null || currentForm === null) return
+  const result = validateConfig(state.schema, state.config)
+  refreshErrors(currentForm, result.errors)
+  status.textContent = result.valid ? 'Config is valid ✓' : `${result.errors.length} validation error(s)`
+  status.className = result.valid ? 'status ok' : 'status error'
+  persist() // remember the latest edit state for quick recall
+}
+
+// Structure change (schema loaded/applied/inferred, or a new config): seed
+// defaults, build the form once, sync the schema editor, validate.
+function buildForm(): void {
+  saveDialog.hidden = true
+  if (state.schema === null) {
+    status.textContent = 'Load a schema (or generate one from a config) to start editing.'
+    status.className = 'status'
+    formHost.replaceChildren()
+    currentForm = null
+    return
+  }
   const parsed = parseSchema(state.schema)
   if (!parsed.ok) {
     status.textContent = `Schema error: ${parsed.error}`
     status.className = 'status error'
     formHost.replaceChildren()
-    exportBtn.disabled = true
+    currentForm = null
     return
   }
-  const result = validateConfig(state.schema, state.config)
-  status.textContent = result.valid ? 'Config is valid ✓' : `${result.errors.length} validation error(s)`
-  status.className = result.valid ? 'status ok' : 'status error'
-  exportBtn.disabled = !result.valid
-
-  const form = renderForm(parsed.root, state.config, result.errors, (path, value) => {
+  state.config = applyDefaults(parsed.root as FieldNode, state.config)
+  currentForm = renderForm(parsed.root, state.config, [], (path, value) => {
     state.config = setAt(state.config, path, value)
-    rerender()
+    revalidate()
   })
-  formHost.replaceChildren(form)
+  formHost.replaceChildren(currentForm)
+  schemaEditor.value = JSON.stringify(state.schema, null, 2)
+  // Capture the diff baseline (post default-seed) once per fresh data load, so
+  // machine-seeded defaults stay out of the diff (FIND-R7-001) while edits made
+  // before an in-session schema apply/infer are preserved (FIND-R8).
+  if (!baselineEstablished) {
+    state.original = clone(state.config)
+    baselineEstablished = true
+  }
+  persist()
+  forgetBtn.hidden = false // a session now exists to recall/forget
+  revalidate()
 }
 
-// Load-time refresh: seed missing config values from schema default/example,
-// sync the schema editor, then render. Kept out of per-keystroke rerender so it
-// never re-adds a value the user just deleted.
-function refresh(): void {
-  if (state.schema !== null) {
-    const parsed = parseSchema(state.schema)
-    if (parsed.ok) state.config = applyDefaults(parsed.root, state.config)
-    schemaEditor.value = JSON.stringify(state.schema, null, 2)
-  }
-  rerender()
+function loadSchema(value: unknown): void {
+  state.schema = value
+  buildForm()
+}
+
+function loadConfig(value: unknown): void {
+  state.config = value
+  buildForm()
 }
 
 function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): void {
@@ -103,17 +175,28 @@ function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): voi
     status.className = 'status error'
     return
   }
+  markNewData() // a file load is a fresh review session -> re-baseline the diff
   const kind = forceKind ?? classifyFile(name, parsed.value)
-  if (kind === 'schema') state.schema = parsed.value
-  else state.config = parsed.value
-  refresh()
+  if (kind === 'schema') loadSchema(parsed.value)
+  else loadConfig(parsed.value)
 }
 
+// ---- tabs ----
+app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    app.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'))
+    tab.classList.add('active')
+    const target = tab.dataset.tab
+    app.querySelector('#panel-edit')!.toggleAttribute('hidden', target !== 'edit')
+    app.querySelector('#panel-schema')!.toggleAttribute('hidden', target !== 'schema')
+  })
+})
+
+// ---- file inputs / drop ----
 app.querySelector<HTMLInputElement>('#schema-input')!.addEventListener('change', (e) => {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) void f.text().then((t) => loadText(t, 'schema', f.name))
 })
-
 app.querySelector<HTMLInputElement>('#config-input')!.addEventListener('change', (e) => {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) void f.text().then((t) => loadText(t, 'config', f.name))
@@ -133,19 +216,18 @@ drop.addEventListener('drop', (e) => {
   }
 })
 
-// Generate a draft schema from the current config, then let the user adjust it.
+// ---- schema inference / adjustment ----
 app.querySelector<HTMLButtonElement>('#infer-schema')!.addEventListener('click', () => {
   if (typeof state.config !== 'object' || state.config === null || Array.isArray(state.config)) {
     status.textContent = 'Load an object config first to generate a schema.'
     status.className = 'status error'
     return
   }
-  state.schema = inferSchema(state.config)
-  refresh()
-  app.querySelector<HTMLDetailsElement>('#schema-panel')!.open = true
+  loadSchema(inferSchema(state.config))
+  schemaMsg.textContent = 'generated from config — adjust as needed'
+  ;(app.querySelector('.tab[data-tab="schema"]') as HTMLButtonElement).click()
 })
 
-// Apply a hand-edited schema from the textarea.
 app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click', () => {
   const parsed = parseJsonFile(schemaEditor.value)
   if (!parsed.ok) {
@@ -153,8 +235,7 @@ app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click',
     return
   }
   schemaMsg.textContent = 'applied'
-  state.schema = parsed.value
-  refresh()
+  loadSchema(parsed.value)
 })
 
 app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click', () => {
@@ -167,7 +248,8 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
       const c = parseJsonFile(configText)
       if (s.ok) state.schema = s.value
       if (c.ok) state.config = c.value
-      refresh()
+      markNewData() // fresh session -> re-baseline
+      buildForm()
     })
     .catch((e) => {
       status.textContent = `Could not load example: ${String(e)}`
@@ -175,7 +257,18 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
     })
 })
 
-exportBtn.addEventListener('click', () => {
+// ---- save: review diff, then export (allowed even when invalid) ----
+function renderChange(c: Change): HTMLElement {
+  const row = document.createElement('li')
+  row.className = `change change-${c.kind}`
+  const where = c.path.length ? c.path.join('.') : '(root)'
+  const fmt = (v: unknown) => (v === undefined ? '∅' : JSON.stringify(v))
+  const detail = c.kind === 'added' ? `+ ${fmt(c.after)}` : c.kind === 'removed' ? `− ${fmt(c.before)}` : `${fmt(c.before)} → ${fmt(c.after)}`
+  row.textContent = `${c.kind.toUpperCase()}  ${where}: ${detail}`
+  return row
+}
+
+function download(): void {
   const blob = new Blob([serializeConfig(state.config)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -183,4 +276,76 @@ exportBtn.addEventListener('click', () => {
   a.download = 'config.json'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
+  if (state.schema === null) return
+  const changes = diffConfig(state.original, state.config)
+  const result = validateConfig(state.schema, state.config)
+
+  saveDialog.replaceChildren()
+  const title = document.createElement('h3')
+  title.textContent = 'Review changes'
+  saveDialog.appendChild(title)
+
+  if (!result.valid) {
+    const warn = document.createElement('p')
+    warn.className = 'status error'
+    warn.textContent = `⚠ ${result.errors.length} validation error(s) — you can still save.`
+    saveDialog.appendChild(warn)
+  }
+
+  if (changes.length === 0) {
+    const none = document.createElement('p')
+    none.className = 'hint'
+    none.textContent = 'No changes from the loaded config.'
+    saveDialog.appendChild(none)
+  } else {
+    const list = document.createElement('ul')
+    list.className = 'change-list'
+    for (const c of changes) list.appendChild(renderChange(c))
+    saveDialog.appendChild(list)
+  }
+
+  const actions = document.createElement('div')
+  actions.className = 'schema-actions'
+  const dl = document.createElement('button')
+  dl.type = 'button'
+  dl.textContent = 'Download config.json'
+  dl.addEventListener('click', () => {
+    download()
+    state.original = clone(state.config) // new baseline after a save
+    saveDialog.hidden = true
+  })
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.textContent = 'Cancel'
+  cancel.addEventListener('click', () => (saveDialog.hidden = true))
+  actions.append(dl, cancel)
+  saveDialog.appendChild(actions)
+  saveDialog.hidden = false
 })
+
+// ---- session persistence: quick recall of the last loaded/edited file ----
+forgetBtn.addEventListener('click', () => {
+  try {
+    localStorage.removeItem(STORE_KEY)
+  } catch {
+    /* ignore */
+  }
+  forgetBtn.hidden = true
+  state.schema = null
+  state.config = {}
+  markNewData()
+  buildForm()
+  status.textContent = 'Cleared saved session.'
+})
+
+// ---- startup: restore the last session if present ----
+const restored = restoreSaved()
+buildForm()
+if (restored) {
+  forgetBtn.hidden = false
+  status.textContent = 'Restored your last session — load a file to start fresh.'
+  status.className = 'status'
+}

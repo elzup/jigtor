@@ -1,15 +1,22 @@
 // spec:renderer — FieldNode tree -> DOM form.
+// The control structure is built ONCE (renderNode); validation errors are shown
+// through per-field `.field-errbox` containers that `refreshErrors` updates in
+// place, so re-validating on every edit never recreates the input the user is
+// interacting with (fixes slider-drag / text-caret jank — REQ-R16).
 import type { FieldError, FieldNode, FieldPath } from './types'
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
 // string fields whose maxLength reaches this render as a <textarea> (REQ-R12).
 const LONG_STRING_THRESHOLD = 80
-
 // string enums with at most this many options render as radios, else a <select>.
 const ENUM_RADIO_MAX = 6
 
 const pathKey = (path: FieldPath): string => path.join('/')
+// Collision-free key for matching a FieldError to its errbox. `pathKey` ('/')
+// is ambiguous for property names containing '/', e.g. ['a/b'] vs ['a','b'];
+// JSON.stringify of the array segments is unambiguous.
+const errKey = (path: FieldPath): string => JSON.stringify(path)
 
 function getAt(value: unknown, path: FieldPath): unknown {
   let cur = value
@@ -20,9 +27,20 @@ function getAt(value: unknown, path: FieldPath): unknown {
   return cur
 }
 
-function errorsFor(errors: FieldError[], path: FieldPath): FieldError[] {
-  const key = pathKey(path)
-  return errors.filter((e) => pathKey(e.path) === key)
+// Empty, position-stable container that refreshErrors fills for this field.
+function errBox(path: FieldPath): HTMLElement {
+  const box = document.createElement('div')
+  box.className = 'field-errbox'
+  box.setAttribute('data-errpath', errKey(path))
+  return box
+}
+
+function descriptionEl(field: FieldNode): HTMLElement | null {
+  if (!field.description) return null
+  const desc = document.createElement('p')
+  desc.className = 'field-description'
+  desc.textContent = field.description
+  return desc
 }
 
 function labelEl(field: FieldNode): HTMLLabelElement {
@@ -32,52 +50,18 @@ function labelEl(field: FieldNode): HTMLLabelElement {
   return label
 }
 
-function appendErrorsAndDescription(
-  container: HTMLElement,
-  field: FieldNode,
-  errors: FieldError[],
-): void {
-  if (field.description) {
-    const desc = document.createElement('p')
-    desc.className = 'field-description'
-    desc.textContent = field.description
-    container.appendChild(desc)
-  }
-  for (const err of errorsFor(errors, field.path)) {
-    const e = document.createElement('p')
-    e.className = 'field-error'
-    e.textContent = err.message
-    container.appendChild(e)
-  }
-}
-
-function renderNode(
-  field: FieldNode,
-  value: unknown,
-  errors: FieldError[],
-  onChange: OnChange,
-): HTMLElement {
+function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLElement {
   if (field.kind === 'object') {
     const fieldset = document.createElement('fieldset')
     const legend = document.createElement('legend')
     legend.textContent = field.required ? `${field.label} *` : field.label
     fieldset.appendChild(legend)
-    if (field.description) {
-      const desc = document.createElement('p')
-      desc.className = 'field-description'
-      desc.textContent = field.description
-      fieldset.appendChild(desc)
-    }
-    // REQ-R06: errors targeting the object node itself (e.g. "must be object",
-    // required-property-missing) must still be shown, not only leaf errors.
-    for (const err of errorsFor(errors, field.path)) {
-      const e = document.createElement('p')
-      e.className = 'field-error'
-      e.textContent = err.message
-      fieldset.appendChild(e)
-    }
+    const desc = descriptionEl(field)
+    if (desc) fieldset.appendChild(desc)
+    // REQ-R06: errors targeting the object node itself land here.
+    fieldset.appendChild(errBox(field.path))
     for (const child of field.children) {
-      fieldset.appendChild(renderNode(child, getAt(value, [child.path.at(-1)!]), errors, onChange))
+      fieldset.appendChild(renderNode(child, getAt(value, [child.path.at(-1)!]), onChange))
     }
     return fieldset
   }
@@ -86,35 +70,25 @@ function renderNode(
   wrap.className = 'field'
   wrap.appendChild(labelEl(field))
   const current = value
+  const finish = (): HTMLElement => {
+    const desc = descriptionEl(field)
+    if (desc) wrap.appendChild(desc)
+    wrap.appendChild(errBox(field.path))
+    return wrap
+  }
 
   if (field.kind === 'unknown') {
     // REQ-P10 / REQ-R06: read-only placeholder for a schema V1 can't render.
-    // Shown so any validation error on a required-but-unsupported field lands
-    // somewhere the user can see.
     wrap.classList.add('field-unknown')
-    if (field.description) {
-      // REQ-R08: author-provided description must still be shown.
-      const desc = document.createElement('p')
-      desc.className = 'field-description'
-      desc.textContent = field.description
-      wrap.appendChild(desc)
-    }
     const note = document.createElement('p')
     note.className = 'field-description'
     note.textContent = `Unsupported in V1 (${field.reason}); edit this field in the file directly.`
-    wrap.appendChild(note)
     const pre = document.createElement('pre')
     pre.className = 'field-array'
     pre.setAttribute('data-path', pathKey(field.path))
     pre.textContent = JSON.stringify(current ?? null, null, 2)
-    wrap.appendChild(pre)
-    for (const err of errorsFor(errors, field.path)) {
-      const e = document.createElement('p')
-      e.className = 'field-error'
-      e.textContent = err.message
-      wrap.appendChild(e)
-    }
-    return wrap
+    wrap.append(note, pre)
+    return finish()
   }
 
   if (field.kind === 'array') {
@@ -124,8 +98,7 @@ function renderNode(
     pre.setAttribute('data-path', pathKey(field.path))
     pre.textContent = JSON.stringify(current ?? [], null, 2)
     wrap.appendChild(pre)
-    appendErrorsAndDescription(wrap, field, errors)
-    return wrap
+    return finish()
   }
 
   // REQ-R11: number with both bounds -> range slider + synced number input.
@@ -157,11 +130,10 @@ function renderNode(
     slot.className = 'field-slider'
     slot.append(range, num)
     wrap.appendChild(slot)
-    appendErrorsAndDescription(wrap, field, errors)
-    return wrap
+    return finish()
   }
 
-  // REQ-R15: small string enum -> radio group (exclusive), else fall through to <select>.
+  // REQ-R15: small string enum -> radio group (exclusive), else <select>.
   if (field.kind === 'string' && field.enum && field.enum.length <= ENUM_RADIO_MAX) {
     const group = document.createElement('div')
     group.className = 'field-radios'
@@ -182,8 +154,7 @@ function renderNode(
       group.appendChild(optLabel)
     }
     wrap.appendChild(group)
-    appendErrorsAndDescription(wrap, field, errors)
-    return wrap
+    return finish()
   }
 
   // REQ-R12: long string (no enum) -> textarea.
@@ -194,8 +165,7 @@ function renderNode(
     ta.addEventListener('input', () => onChange(field.path, ta.value))
     ta.setAttribute('data-path', pathKey(field.path))
     wrap.appendChild(ta)
-    appendErrorsAndDescription(wrap, field, errors)
-    return wrap
+    return finish()
   }
 
   let control: HTMLInputElement | HTMLSelectElement
@@ -244,37 +214,32 @@ function renderNode(
 
   control.setAttribute('data-path', pathKey(field.path))
   wrap.appendChild(control)
-  appendErrorsAndDescription(wrap, field, errors)
-  return wrap
+  return finish()
 }
 
-// Every path that renderNode produces a render target for (object nodes, leaf
-// controls, unknown placeholders) — used to detect errors that would otherwise
-// be invisible (REQ-R09).
-function collectRenderedPaths(field: FieldNode, into: Set<string>): void {
-  into.add(pathKey(field.path))
-  if (field.kind === 'object') {
-    for (const child of field.children) collectRenderedPaths(child, into)
+// REQ-R06/R09/R16: (re)place validation errors into the per-field errboxes
+// WITHOUT touching any input control. Errors whose path matches no errbox go to
+// a form-level `.form-errors` summary so nothing is ever invisible.
+export function refreshErrors(formEl: HTMLElement, errors: FieldError[]): void {
+  const boxes = new Map<string, Element>()
+  formEl.querySelectorAll('.field-errbox').forEach((b) => {
+    b.replaceChildren()
+    boxes.set(b.getAttribute('data-errpath') ?? '', b)
+  })
+  formEl.querySelector('.form-errors')?.remove()
+
+  const orphans: FieldError[] = []
+  for (const err of errors) {
+    const box = boxes.get(errKey(err.path))
+    if (!box) {
+      orphans.push(err)
+      continue
+    }
+    const e = document.createElement('p')
+    e.className = 'field-error'
+    e.textContent = err.message
+    box.appendChild(e)
   }
-  // array item controls are not individually rendered in V1 (read-only JSON),
-  // so array element paths intentionally are not added.
-}
-
-export function renderForm(
-  root: FieldNode,
-  value: unknown,
-  errors: FieldError[],
-  onChange: OnChange,
-): HTMLElement {
-  const form = document.createElement('form')
-  form.className = 'jigtor-form'
-  form.appendChild(renderNode(root, value, errors, onChange))
-
-  // REQ-R09: errors whose path has no rendered field must still be shown, so no
-  // validation error is ever invisible / unresolvable from the UI.
-  const rendered = new Set<string>()
-  collectRenderedPaths(root, rendered)
-  const orphans = errors.filter((e) => !rendered.has(pathKey(e.path)))
   if (orphans.length > 0) {
     const summary = document.createElement('div')
     summary.className = 'form-errors'
@@ -285,7 +250,19 @@ export function renderForm(
       e.textContent = `${where}${err.message}`
       summary.appendChild(e)
     }
-    form.appendChild(summary)
+    formEl.appendChild(summary)
   }
+}
+
+export function renderForm(
+  root: FieldNode,
+  value: unknown,
+  errors: FieldError[],
+  onChange: OnChange,
+): HTMLElement {
+  const form = document.createElement('form')
+  form.className = 'jigtor-form'
+  form.appendChild(renderNode(root, value, onChange))
+  refreshErrors(form, errors)
   return form
 }

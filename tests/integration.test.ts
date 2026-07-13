@@ -11,6 +11,7 @@ import { validateConfig } from '../src/core/validateConfig'
 import { renderForm } from '../src/core/renderForm'
 import { inferSchema } from '../src/core/inferSchema'
 import { applyDefaults } from '../src/core/applyDefaults'
+import { diffConfig } from '../src/core/diffConfig'
 import type { FieldPath } from '../src/core/types'
 
 const dir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'examples')
@@ -75,6 +76,30 @@ describe('integration: example config + schema', () => {
     const seeded = applyDefaults(parsed.root, { key: 'abc' })
     expect(seeded).toEqual({ key: 'abc', max: 20 })
     expect(validateConfig(schema, seeded).valid).toBe(true)
+  })
+
+  test('diff baseline (FIND-R7-001): default-seed is NOT shown as a change; only user edits are', () => {
+    // Mirrors main.ts buildForm(): seed defaults, then baseline = post-seed state.
+    const schema = {
+      type: 'object',
+      properties: {
+        host: { type: 'string', default: 'localhost' },
+        port: { type: 'integer', default: 8080 },
+        name: { type: 'string' },
+      },
+    }
+    const parsed = parseSchema(schema)
+    if (!parsed.ok) throw new Error('bad')
+    // Flow A: load schema with only `{name}` in config, seed defaults.
+    let config: unknown = applyDefaults(parsed.root, { name: 'app' })
+    const baseline = JSON.parse(JSON.stringify(config)) // main.ts: state.original = clone post-seed
+    // seeded defaults must NOT appear as changes
+    expect(diffConfig(baseline, config)).toEqual([])
+    // a real user edit shows up as exactly one change
+    config = { ...(config as object), name: 'renamed' }
+    expect(diffConfig(baseline, config)).toEqual([
+      { path: ['name'], before: 'app', after: 'renamed', kind: 'changed' },
+    ])
   })
 
   test('a constraint violation is caught and surfaced on the right field', () => {

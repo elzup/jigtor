@@ -6,6 +6,7 @@ import { validateConfig } from '../src/core/validateConfig'
 import { parseJsonFile, serializeConfig } from '../src/core/fileIo'
 import { inferSchema } from '../src/core/inferSchema'
 import { applyDefaults } from '../src/core/applyDefaults'
+import { diffConfig, type Change } from '../src/core/diffConfig'
 
 // Object keys: exclude __proto__/constructor/prototype — assigning those via a
 // generated object mangles the prototype instead of creating a normal config
@@ -192,6 +193,41 @@ describe('schema-infer / defaults meta-properties', () => {
             expect(out.a).toEqual(present) // scalar/array/null: untouched
           }
         }
+      }),
+    )
+  })
+
+  test('PROP-CL01: applying diffConfig(before,after) to before reconstructs after', () => {
+    // Apply a change list onto a deep clone of `before`, then compare to `after`.
+    const clone = (v: unknown) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
+    const applyChange = (root: Record<string, unknown>, c: Change) => {
+      let node = root
+      for (const key of c.path.slice(0, -1)) {
+        if (typeof node[key] !== 'object' || node[key] === null || Array.isArray(node[key])) {
+          node[key] = {}
+        }
+        node = node[key] as Record<string, unknown>
+      }
+      const last = c.path.at(-1)!
+      if (c.kind === 'removed') delete node[last]
+      else node[last] = c.after
+    }
+    fc.assert(
+      fc.property(objectConfig, objectConfig, (before, after) => {
+        const changes = diffConfig(before, after)
+        const rebuilt = (clone(before) ?? {}) as Record<string, unknown>
+        for (const c of changes) applyChange(rebuilt, c)
+        expect(rebuilt).toEqual(after)
+      }),
+    )
+  })
+
+  test('PROP-CL02: diffConfig(x, x) is always empty and never mutates', () => {
+    fc.assert(
+      fc.property(objectConfig, (config) => {
+        const snapshot = JSON.parse(JSON.stringify(config))
+        expect(diffConfig(config, config)).toEqual([])
+        expect(config).toEqual(snapshot)
       }),
     )
   })

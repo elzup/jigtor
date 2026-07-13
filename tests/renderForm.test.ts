@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { renderForm } from '../src/core/renderForm'
+import { renderForm, refreshErrors } from '../src/core/renderForm'
 import { parseSchema } from '../src/core/parseSchema'
 import type { FieldError } from '../src/core/types'
 
@@ -122,6 +122,43 @@ describe('spec:renderer', () => {
   test('REQ-R08: description rendered', () => {
     const { el } = build(schema, {})
     expect(el.textContent).toContain('the key')
+  })
+
+  test('REQ-R16 (FIND-R7-002): a "/"-containing key routes its error to its OWN errbox', () => {
+    const slashy = {
+      type: 'object',
+      properties: {
+        'a/b': { type: 'string' },
+        a: { type: 'object', properties: { b: { type: 'string' } } },
+      },
+    }
+    const { el } = build(slashy, {})
+    refreshErrors(el, [{ path: ['a/b'], message: 'top-level slashy error' }])
+    // exactly one error, and it must NOT leak into the nested a.b field's box
+    const errs = Array.from(el.querySelectorAll('.field-error')).map((e) => e.textContent)
+    expect(errs).toEqual(['top-level slashy error'])
+    // the nested ['a','b'] field's errbox must stay empty (no collision)
+    const boxes = Array.from(el.querySelectorAll('.field-errbox'))
+    const nestedBox = boxes.find((b) => b.getAttribute('data-errpath') === JSON.stringify(['a', 'b']))
+    expect(nestedBox?.textContent).toBe('')
+  })
+
+  test('REQ-R16: refreshErrors updates errors without recreating input controls', () => {
+    const { el } = build(schema, {})
+    const keyInput = el.querySelector('input[data-path="key"]') as HTMLInputElement
+    keyInput.value = 'typing…'
+    // no error yet
+    expect(el.querySelector('.field-error')).toBeNull()
+    // add an error via refresh — the SAME input element must remain, value intact
+    refreshErrors(el, [{ path: ['key'], message: 'bad key' }])
+    const sameInput = el.querySelector('input[data-path="key"]') as HTMLInputElement
+    expect(sameInput).toBe(keyInput) // identity preserved (no rebuild)
+    expect(sameInput.value).toBe('typing…')
+    expect(el.querySelector('.field-error')!.textContent).toContain('bad key')
+    // clearing errors removes them, still same input
+    refreshErrors(el, [])
+    expect(el.querySelector('.field-error')).toBeNull()
+    expect(el.querySelector('input[data-path="key"]')).toBe(keyInput)
   })
 
   const richSchema = {

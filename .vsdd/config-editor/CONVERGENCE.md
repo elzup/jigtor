@@ -1,5 +1,28 @@
 # VCSDD Convergence Record — config-editor (jigtor V1 core)
 
+**Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX)
+
+## Cycle 3 — UX (diff/save, tabs, radio, widget jank fix, session recall)
+
+CONVERGED after R7→R9. Added/changed:
+
+| Spec node | REQs | Impl | Tests |
+|-----------|------|------|-------|
+| spec:changelog | CL01–CL09 | src/core/diffConfig.ts | tests/diffConfig.test.ts (10) + PROP-CL01/02 |
+| spec:renderer (+R15,R16) | radio enum; in-place error refresh | src/core/renderForm.ts (errbox + refreshErrors) | tests/renderForm.test.ts |
+| (UI) | tabs Edit/Schema, submit-anytime + diff confirm, localStorage session recall | src/main.ts | tests/integration.test.ts (baseline) |
+
+- **REQ-R15**: small string enum → radio group (else select).
+- **REQ-R16**: errors refresh into per-field `.field-errbox` without recreating inputs → fixes slider-drag / text-caret jank (user-reported "unnatural").
+- **Submit anytime**: Download no longer gated on valid; a "Review changes" dialog shows the diff (loaded baseline vs current) + validity before export.
+- **Session recall**: last schema+config persisted to localStorage, auto-restored on startup, "Forget saved" clears it.
+
+Adversary: **R7** HIGH (diff showed seed-defaults as edits) → fixed; **R8** HIGH regression (over-eager baseline reset wiped edits on apply-schema) → fixed with a `baselineEstablished` flag; **R9** PASS (flows A–G, persistence crash-safety). 103 tests green; build 43.2 KB gzip.
+
+---
+
+# Cycle 1+2 record
+
 **Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack)
 
 ## Cycle 2 — feature pack (rich widgets / example-default init / schema inference)

@@ -56,3 +56,8 @@ coherence:
   - 各 radio に `data-path` を付与し、選択で `onChange(path, value)` を呼ぶ (REQ-R05 準拠)。
   - 現在値に一致する radio を `checked` にする。
   IF 選択肢が `ENUM_RADIO_MAX` を超える THEN THE SYSTEM SHALL 従来どおり `<select>` を描画する。
+- REQ-R16: THE SYSTEM SHALL 検証エラーの再描画 (`refreshErrors`) を、入力コントロールを
+  **再生成せず** フィールドごとの `.field-errbox` の中身だけ差し替えて行う。
+  RATIONALE: 値変更のたびにフォーム全体を作り直すと、操作中の要素 (ドラッグ中の
+  slider、入力中の text の caret) が破棄され「不自然」な挙動になる (ユーザー報告)。
+  入力要素の identity を保つことでライブ検証と自然な操作性を両立する。
