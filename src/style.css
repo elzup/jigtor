@@ -92,6 +92,17 @@ fieldset {
   min-height: 4rem;
   resize: vertical;
 }
+.field-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 400;
+}
 .field-slider {
   display: flex;
   gap: 0.75rem;

@@ -6,6 +6,9 @@ export type OnChange = (path: FieldPath, value: unknown) => void
 // string fields whose maxLength reaches this render as a <textarea> (REQ-R12).
 const LONG_STRING_THRESHOLD = 80
 
+// string enums with at most this many options render as radios, else a <select>.
+const ENUM_RADIO_MAX = 6
+
 const pathKey = (path: FieldPath): string => path.join('/')
 
 function getAt(value: unknown, path: FieldPath): unknown {
@@ -154,6 +157,31 @@ function renderNode(
     slot.className = 'field-slider'
     slot.append(range, num)
     wrap.appendChild(slot)
+    appendErrorsAndDescription(wrap, field, errors)
+    return wrap
+  }
+
+  // REQ-R15: small string enum -> radio group (exclusive), else fall through to <select>.
+  if (field.kind === 'string' && field.enum && field.enum.length <= ENUM_RADIO_MAX) {
+    const group = document.createElement('div')
+    group.className = 'field-radios'
+    const name = pathKey(field.path)
+    for (const opt of field.enum) {
+      const optLabel = document.createElement('label')
+      optLabel.className = 'radio-option'
+      const radio = document.createElement('input')
+      radio.type = 'radio'
+      radio.name = name
+      radio.value = opt
+      radio.checked = current === opt
+      radio.setAttribute('data-path', name)
+      radio.addEventListener('change', () => {
+        if (radio.checked) onChange(field.path, opt)
+      })
+      optLabel.append(radio, document.createTextNode(` ${opt}`))
+      group.appendChild(optLabel)
+    }
+    wrap.appendChild(group)
     appendErrorsAndDescription(wrap, field, errors)
     return wrap
   }

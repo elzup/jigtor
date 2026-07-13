@@ -15,7 +15,7 @@ coherence:
 ## 要件 (EARS)
 
 - REQ-R01: WHEN `kind: 'string'` かつ `enum` あり
-  THE SYSTEM SHALL `<select>` を描画する。enum 無しなら `<input type=text>`。
+  THE SYSTEM SHALL enum を選択 UI で描画する (詳細は REQ-R15)。enum 無しなら `<input type=text>`。
 - REQ-R02: WHEN `kind: 'number'`
   THE SYSTEM SHALL `<input type=number>` を描画し、`integer` なら `step=1` を設定する。
 - REQ-R03: WHEN `kind: 'boolean'`
@@ -50,3 +50,9 @@ coherence:
   (挙動は checkbox のまま。REQ-R03 と後方互換)。
 - REQ-R14: THE SYSTEM SHALL リッチ widget でも `data-path` 属性を各コントロールに付与し、
   既存のエラー描画 (REQ-R06) と onChange (REQ-R05) の契約を維持する。
+- REQ-R15: WHEN string フィールドが `enum` を持ち、選択肢が `ENUM_RADIO_MAX` (=6) 以下
+  THE SYSTEM SHALL ラジオボタン群 (`input[type=radio]`) を描画する。
+  - 同一フィールドの radio は同じ `name` (= path) を共有し排他選択になる。
+  - 各 radio に `data-path` を付与し、選択で `onChange(path, value)` を呼ぶ (REQ-R05 準拠)。
+  - 現在値に一致する radio を `checked` にする。
+  IF 選択肢が `ENUM_RADIO_MAX` を超える THEN THE SYSTEM SHALL 従来どおり `<select>` を描画する。

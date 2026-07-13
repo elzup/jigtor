@@ -25,11 +25,44 @@ const schema = {
 }
 
 describe('spec:renderer', () => {
-  test('REQ-R01: enum string -> select, plain string -> text input', () => {
+  test('REQ-R01/R15: small enum string -> radio group, plain string -> text input', () => {
     const { el } = build(schema, {})
-    expect(el.querySelector('select')).toBeTruthy()
+    // `mode` enum has 2 options (<= 6) -> radios, not a select
+    expect(el.querySelector('input[type="radio"][data-path="mode"]')).toBeTruthy()
+    expect(el.querySelector('select[data-path="mode"]')).toBeNull()
     const textInputs = el.querySelectorAll('input[type="text"]')
     expect(textInputs.length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('REQ-R15: radio group has one input per option, sharing a name, current checked', () => {
+    const { el } = build(schema, { mode: 'b' })
+    const radios = el.querySelectorAll<HTMLInputElement>('input[type="radio"][data-path="mode"]')
+    expect(radios.length).toBe(2)
+    const names = new Set(Array.from(radios).map((r) => r.name))
+    expect(names.size).toBe(1) // exclusive group
+    const checked = Array.from(radios).find((r) => r.checked)
+    expect(checked!.value).toBe('b')
+  })
+
+  test('REQ-R15: selecting a radio fires onChange(path, value)', () => {
+    const { el, changes } = build(schema, { mode: 'a' })
+    const radios = el.querySelectorAll<HTMLInputElement>('input[type="radio"][data-path="mode"]')
+    const b = Array.from(radios).find((r) => r.value === 'b')!
+    b.checked = true
+    b.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(changes).toContainEqual({ path: ['mode'], value: 'b' })
+  })
+
+  test('REQ-R15: large enum (>6) falls back to select', () => {
+    const big = {
+      type: 'object',
+      properties: {
+        n: { type: 'string', enum: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }, // 7 options
+      },
+    }
+    const { el } = build(big, {})
+    expect(el.querySelector('select[data-path="n"]')).toBeTruthy()
+    expect(el.querySelector('input[type="radio"][data-path="n"]')).toBeNull()
   })
 
   test('REQ-R02: number -> number input; integer gets step=1', () => {
