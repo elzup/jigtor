@@ -13,6 +13,7 @@ jigtor V1 が扱う JSON Schema のサブセットと、パーサが出力する
 
 - `type`: `object` | `string` | `number` | `integer` | `boolean` | `array`
 - `properties`, `required`, `default`, `description`, `title`
+- `example` / `examples` (leaf 型のみ、`examples[0]` を採用)
 - `enum`
 - `minimum`, `maximum` (number/integer)
 - `minLength`, `maxLength`, `pattern` (string)

@@ -91,6 +91,68 @@ describe('spec:renderer', () => {
     expect(el.textContent).toContain('the key')
   })
 
+  const richSchema = {
+    type: 'object',
+    properties: {
+      volume: { type: 'integer', minimum: 0, maximum: 100 },
+      ratio: { type: 'number', minimum: 0, maximum: 1 },
+      plain: { type: 'integer' }, // no min/max -> number input only
+      note: { type: 'string', maxLength: 200 },
+      short: { type: 'string', maxLength: 10 },
+      on: { type: 'boolean' },
+    },
+  }
+
+  test('REQ-R11: number with min+max -> range slider + synced number input', () => {
+    const { el } = build(richSchema, { volume: 30 })
+    const range = el.querySelector('input[type="range"][data-path="volume"]') as HTMLInputElement
+    const num = el.querySelector('input[type="number"][data-path="volume"]') as HTMLInputElement
+    expect(range).toBeTruthy()
+    expect(num).toBeTruthy()
+    expect(range.min).toBe('0')
+    expect(range.max).toBe('100')
+    expect(range.step).toBe('1') // integer
+    expect(range.value).toBe('30')
+    expect(num.value).toBe('30')
+  })
+
+  test('REQ-R11: plain number (no min/max) stays a single number input', () => {
+    const { el } = build(richSchema, {})
+    expect(el.querySelector('input[type="range"][data-path="plain"]')).toBeNull()
+    expect(el.querySelector('input[type="number"][data-path="plain"]')).toBeTruthy()
+  })
+
+  test('REQ-R11/R14: moving the slider fires onChange and syncs the number box', () => {
+    const { el, changes } = build(richSchema, { volume: 30 })
+    const range = el.querySelector('input[type="range"][data-path="volume"]') as HTMLInputElement
+    range.value = '70'
+    range.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(changes).toContainEqual({ path: ['volume'], value: 70 })
+    const num = el.querySelector('input[type="number"][data-path="volume"]') as HTMLInputElement
+    expect(num.value).toBe('70')
+  })
+
+  test('REQ-R12: long string (maxLength>=80) -> textarea; short -> text input', () => {
+    const { el } = build(richSchema, {})
+    expect(el.querySelector('textarea[data-path="note"]')).toBeTruthy()
+    expect(el.querySelector('input[type="text"][data-path="short"]')).toBeTruthy()
+    expect(el.querySelector('textarea[data-path="short"]')).toBeNull()
+  })
+
+  test('REQ-R12: editing the textarea fires onChange', () => {
+    const { el, changes } = build(richSchema, {})
+    const ta = el.querySelector('textarea[data-path="note"]') as HTMLTextAreaElement
+    ta.value = 'hello world'
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(changes).toContainEqual({ path: ['note'], value: 'hello world' })
+  })
+
+  test('REQ-R13: boolean checkbox carries .toggle class (behavior unchanged)', () => {
+    const { el } = build(richSchema, {})
+    const cb = el.querySelector('input[type="checkbox"][data-path="on"]') as HTMLInputElement
+    expect(cb.classList.contains('toggle')).toBe(true)
+  })
+
   test('REQ-P10/R06: unsupported required child renders read-only + shows its error', () => {
     const refSchema = {
       type: 'object',

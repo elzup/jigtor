@@ -3,6 +3,9 @@ import type { FieldError, FieldNode, FieldPath } from './types'
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
+// string fields whose maxLength reaches this render as a <textarea> (REQ-R12).
+const LONG_STRING_THRESHOLD = 80
+
 const pathKey = (path: FieldPath): string => path.join('/')
 
 function getAt(value: unknown, path: FieldPath): unknown {
@@ -122,6 +125,51 @@ function renderNode(
     return wrap
   }
 
+  // REQ-R11: number with both bounds -> range slider + synced number input.
+  if (field.kind === 'number' && field.minimum !== undefined && field.maximum !== undefined) {
+    const step = field.integer ? '1' : 'any'
+    const range = document.createElement('input')
+    range.type = 'range'
+    range.min = String(field.minimum)
+    range.max = String(field.maximum)
+    range.step = step
+    const num = document.createElement('input')
+    num.type = 'number'
+    num.min = String(field.minimum)
+    num.max = String(field.maximum)
+    num.step = step
+    if (typeof current === 'number') {
+      range.value = String(current)
+      num.value = String(current)
+    }
+    const emit = (raw: string, peer: HTMLInputElement) => {
+      peer.value = raw
+      onChange(field.path, raw === '' ? undefined : Number(raw))
+    }
+    range.addEventListener('input', () => emit(range.value, num))
+    num.addEventListener('input', () => emit(num.value, range))
+    range.setAttribute('data-path', pathKey(field.path))
+    num.setAttribute('data-path', pathKey(field.path))
+    const slot = document.createElement('div')
+    slot.className = 'field-slider'
+    slot.append(range, num)
+    wrap.appendChild(slot)
+    appendErrorsAndDescription(wrap, field, errors)
+    return wrap
+  }
+
+  // REQ-R12: long string (no enum) -> textarea.
+  if (field.kind === 'string' && !field.enum && (field.maxLength ?? 0) >= LONG_STRING_THRESHOLD) {
+    const ta = document.createElement('textarea')
+    if (field.maxLength !== undefined) ta.maxLength = field.maxLength
+    if (typeof current === 'string') ta.value = current
+    ta.addEventListener('input', () => onChange(field.path, ta.value))
+    ta.setAttribute('data-path', pathKey(field.path))
+    wrap.appendChild(ta)
+    appendErrorsAndDescription(wrap, field, errors)
+    return wrap
+  }
+
   let control: HTMLInputElement | HTMLSelectElement
 
   if (field.kind === 'string' && field.enum) {
@@ -138,6 +186,7 @@ function renderNode(
   } else if (field.kind === 'boolean') {
     const input = document.createElement('input')
     input.type = 'checkbox'
+    input.className = 'toggle' // REQ-R13: toggle appearance via CSS, checkbox behavior
     input.checked = current === true
     input.addEventListener('change', () => onChange(field.path, input.checked))
     control = input

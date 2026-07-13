@@ -1,5 +1,24 @@
 # VCSDD Convergence Record — config-editor (jigtor V1 core)
 
+**Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack)
+
+## Cycle 2 — feature pack (rich widgets / example-default init / schema inference)
+
+CONVERGED after R5→R6. Added nodes:
+
+| Spec node | REQs | Impl | Tests |
+|-----------|------|------|-------|
+| spec:defaults | D01–D07 | src/core/applyDefaults.ts | tests/applyDefaults.test.ts (10) |
+| spec:schema-infer | I01–I07 | src/core/inferSchema.ts | tests/inferSchema.test.ts (7) |
+| spec:renderer (+R11–R14) | slider/textarea/toggle | src/core/renderForm.ts | tests/renderForm.test.ts |
+| (harden) | infer round-trip, defaults no-overwrite | — | tests/properties.test.ts (PROP-I/D) |
+
+Adversary: **R5** found 1 HIGH (applyDefaults silently clobbered a present non-object at an object-typed field) + the test-slop that hid it; both fixed. **R6** = zero critical/high after 29 probes → converged. UI wired in src/main.ts (default seeding on load, "Generate schema from config", editable schema panel). 85 tests green; build 41.9 KB gzip.
+
+---
+
+# Cycle 1 record
+
 **Status:** CONVERGED (2026-07-13) · mode: Lean · Adversary rounds: 4
 
 ## Bead traceability (REQ → TEST → IMPL)

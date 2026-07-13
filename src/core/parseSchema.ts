@@ -25,6 +25,15 @@ const asNumber = (v: unknown): number | undefined =>
 const asString = (v: unknown): string | undefined =>
   typeof v === 'string' ? v : undefined
 
+// example, or the first entry of examples[] (draft-06+). Returned raw; callers
+// keep it only when it matches the field's type.
+const rawExample = (schema: Schema): unknown => {
+  if ('example' in schema) return schema['example']
+  const examples = schema['examples']
+  if (Array.isArray(examples) && examples.length > 0) return examples[0]
+  return undefined
+}
+
 function labelFor(schema: Schema, path: FieldPath): string {
   const title = asString(schema['title'])
   if (title) return title
@@ -51,6 +60,8 @@ function convert(
       const field: StringField = { ...base, kind: 'string' }
       const def = asString(schema['default'])
       if (def !== undefined) field.default = def
+      const ex = asString(rawExample(schema))
+      if (ex !== undefined) field.example = ex
       const enumVals = asStringArray(schema['enum'])
       if (enumVals) field.enum = enumVals
       const minLength = asNumber(schema['minLength'])
@@ -66,6 +77,8 @@ function convert(
       const field: NumberField = { ...base, kind: 'number', integer: type === 'integer' }
       const def = asNumber(schema['default'])
       if (def !== undefined) field.default = def
+      const ex = asNumber(rawExample(schema))
+      if (ex !== undefined) field.example = ex
       const enumVals = Array.isArray(schema['enum'])
         ? (schema['enum'] as unknown[]).filter((x): x is number => typeof x === 'number')
         : undefined
@@ -79,6 +92,8 @@ function convert(
     case 'boolean': {
       const field: BooleanField = { ...base, kind: 'boolean' }
       if (typeof schema['default'] === 'boolean') field.default = schema['default']
+      const ex = rawExample(schema)
+      if (typeof ex === 'boolean') field.example = ex
       return { ok: true, node: field }
     }
     case 'object': {

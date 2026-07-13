@@ -4,6 +4,14 @@ import fc from 'fast-check'
 import { parseSchema } from '../src/core/parseSchema'
 import { validateConfig } from '../src/core/validateConfig'
 import { parseJsonFile, serializeConfig } from '../src/core/fileIo'
+import { inferSchema } from '../src/core/inferSchema'
+import { applyDefaults } from '../src/core/applyDefaults'
+
+// Object keys: exclude __proto__/constructor/prototype — assigning those via a
+// generated object mangles the prototype instead of creating a normal config
+// key, which is a JS engine quirk, not jigtor behavior.
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const safeKey = fc.string({ minLength: 1, maxLength: 6 }).filter((k) => !UNSAFE_KEYS.has(k))
 
 // Arbitrary JSON values (bounded depth) for round-trip / no-throw properties.
 const jsonValue: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
@@ -15,7 +23,7 @@ const jsonValue: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
     fc.double({ noNaN: true, noDefaultInfinity: true }),
     fc.string(),
     fc.array(tie('node'), { maxLength: 4 }),
-    fc.dictionary(fc.string(), tie('node'), { maxKeys: 4 }),
+    fc.dictionary(safeKey, tie('node'), { maxKeys: 4 }),
   ),
 })).node
 
@@ -105,6 +113,110 @@ describe('parser/validator meta-properties', () => {
         expect(validateConfig(schema, { [name]: 'ok' }).valid).toBe(true)
       }),
       AJV_RUNS,
+    )
+  })
+})
+
+describe('schema-infer / defaults meta-properties', () => {
+  // Config objects: plain-object roots of bounded-depth JSON (the app's domain).
+  const jsonLeaf = fc.oneof(
+    fc.string(),
+    fc.integer(),
+    fc.double({ noNaN: true, noDefaultInfinity: true }),
+    fc.boolean(),
+    fc.constant(null),
+  )
+  const objectConfig = fc.letrec((tie) => ({
+    node: fc.dictionary(
+      safeKey,
+      fc.oneof({ depthSize: 'small' }, jsonLeaf, fc.array(jsonLeaf, { maxLength: 3 }), tie('node')),
+      { maxKeys: 5 },
+    ),
+  })).node
+
+  test('PROP-I01: inferred schema always parses and validates its source config', () => {
+    fc.assert(
+      fc.property(objectConfig, (config) => {
+        const schema = inferSchema(config)
+        expect(parseSchema(schema).ok).toBe(true)
+        expect(validateConfig(schema, config).valid).toBe(true)
+      }),
+      { numRuns: 40 },
+    )
+  })
+
+  test('PROP-I02: inferSchema does not mutate its input', () => {
+    fc.assert(
+      fc.property(objectConfig, (config) => {
+        const snapshot = JSON.parse(JSON.stringify(config))
+        inferSchema(config)
+        expect(config).toEqual(snapshot)
+      }),
+    )
+  })
+
+  test('PROP-D01: applyDefaults never overwrites an existing value & is idempotent', () => {
+    fc.assert(
+      fc.property(objectConfig, (config) => {
+        const schema = inferSchema(config)
+        const parsed = parseSchema(schema)
+        if (!parsed.ok) return
+        const once = applyDefaults(parsed.root, config)
+        // inferred schema has no `default`, so applyDefaults is a no-op here and
+        // must preserve the config exactly (also covers no-overwrite).
+        expect(once).toEqual(config)
+        const twice = applyDefaults(parsed.root, once)
+        expect(twice).toEqual(once) // idempotent
+      }),
+      { numRuns: 40 },
+    )
+  })
+
+  test('PROP-D03: a present value at an object-typed field is NEVER altered (any type)', () => {
+    // Fixed schema whose `a` is object-typed with a defaulted child. Feed ANY
+    // value at `a` (incl. scalar/array/null mismatches) — it must be preserved.
+    const schema = {
+      type: 'object',
+      properties: { a: { type: 'object', properties: { b: { type: 'string', default: 'x' } } } },
+    }
+    const parsed = parseSchema(schema)
+    if (!parsed.ok) throw new Error('bad')
+    fc.assert(
+      fc.property(jsonLeaf, fc.array(jsonLeaf, { maxLength: 3 }), (leaf, arr) => {
+        for (const present of [leaf, arr, {}, { b: 'kept' }, { extra: 1 }]) {
+          const out = applyDefaults(parsed.root, { a: present }) as Record<string, unknown>
+          if (typeof present === 'object' && present !== null && !Array.isArray(present)) {
+            // object present: preserved, plus default filled if b missing
+            expect(out.a).toEqual({ b: (present as Record<string, unknown>).b ?? 'x', ...present })
+          } else {
+            expect(out.a).toEqual(present) // scalar/array/null: untouched
+          }
+        }
+      }),
+    )
+  })
+
+  test('PROP-D02: with defaults present, existing values survive and missing ones fill', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        a: { type: 'integer', default: 99 },
+        b: { type: 'string', default: 'D' },
+      },
+    }
+    const parsed = parseSchema(schema)
+    if (!parsed.ok) throw new Error('bad')
+    fc.assert(
+      fc.property(
+        fc.record({ a: fc.option(fc.integer(), { nil: undefined }) }, { requiredKeys: [] }),
+        (partial) => {
+          const out = applyDefaults(parsed.root, partial) as Record<string, unknown>
+          // b always fills (never provided); a keeps its value if provided.
+          expect(out.b).toBe('D')
+          if (partial.a !== undefined) expect(out.a).toBe(partial.a)
+          else expect(out.a).toBe(99)
+        },
+      ),
     )
   })
 })

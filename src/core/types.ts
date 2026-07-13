@@ -12,6 +12,7 @@ type FieldBase = {
 export type StringField = FieldBase & {
   kind: 'string'
   default?: string
+  example?: string
   enum?: string[]
   minLength?: number
   maxLength?: number
@@ -22,6 +23,7 @@ export type NumberField = FieldBase & {
   kind: 'number'
   integer: boolean
   default?: number
+  example?: number
   enum?: number[]
   minimum?: number
   maximum?: number
@@ -30,6 +32,7 @@ export type NumberField = FieldBase & {
 export type BooleanField = FieldBase & {
   kind: 'boolean'
   default?: boolean
+  example?: boolean
 }
 
 export type ObjectField = FieldBase & {

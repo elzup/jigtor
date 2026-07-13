@@ -35,3 +35,18 @@ coherence:
   THEN THE SYSTEM SHALL そのエラーをフォーム末尾の `.form-errors` サマリに
   `path` 付きで描画する。これによりいかなる検証エラーも UI から不可視にならない
   (R4 FIND-R4-001 が示した「描画先が無く解消不能」クラスを恒久的に閉じる)。
+
+## タイプ別リッチ widget (V1 追加)
+
+- REQ-R11: WHEN number フィールドが `minimum` と `maximum` を**両方**持つ
+  THE SYSTEM SHALL レンジスライダー (`input[type=range]`) と数値入力 (`input[type=number]`) を
+  **両方**描画し、`min`/`max`/`step` を設定する (integer は `step=1`)。
+  どちらを操作しても他方が同期し、`onChange(path, number)` を呼ぶ (REQ-R05 準拠)。
+  IF `minimum`/`maximum` の片方でも欠ける THEN 従来どおり数値入力のみ (REQ-R02)。
+- REQ-R12: WHEN string フィールドが `enum` を持たず `maxLength >= 80` (または明示 `format:'textarea'` 相当)
+  THE SYSTEM SHALL `<textarea>` を描画する。それ以外の string は従来どおり `<input type=text>`。
+- REQ-R13: WHEN boolean フィールドを描画する
+  THE SYSTEM SHALL チェックボックスに `.toggle` クラスを付与し、トグル外観を CSS で与える
+  (挙動は checkbox のまま。REQ-R03 と後方互換)。
+- REQ-R14: THE SYSTEM SHALL リッチ widget でも `data-path` 属性を各コントロールに付与し、
+  既存のエラー描画 (REQ-R06) と onChange (REQ-R05) の契約を維持する。

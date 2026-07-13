@@ -9,6 +9,8 @@ import { parseJsonFile, classifyFile, serializeConfig } from '../src/core/fileIo
 import { parseSchema } from '../src/core/parseSchema'
 import { validateConfig } from '../src/core/validateConfig'
 import { renderForm } from '../src/core/renderForm'
+import { inferSchema } from '../src/core/inferSchema'
+import { applyDefaults } from '../src/core/applyDefaults'
 import type { FieldPath } from '../src/core/types'
 
 const dir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'examples')
@@ -40,6 +42,39 @@ describe('integration: example config + schema', () => {
     const r = parseSchema(schema)
     expect(r.ok).toBe(true)
     expect(validateConfig(schema, config)).toEqual({ valid: true, errors: [] })
+  })
+
+  test('no-schema flow: infer -> parse -> render -> validate (as main.ts drives it)', () => {
+    // A config from an app that ships no schema.
+    const legacy = { host: 'localhost', port: 8080, tls: false, tags: ['a', 'b'] }
+    const inferred = inferSchema(legacy)
+    const parsed = parseSchema(inferred)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error(parsed.error)
+    // seeding defaults is a no-op here (inferred schema has no default) and must
+    // not alter the config.
+    const seeded = applyDefaults(parsed.root, legacy)
+    expect(seeded).toEqual(legacy)
+    // the source config validates against its own inferred schema.
+    expect(validateConfig(inferred, seeded).valid).toBe(true)
+    // and it renders without throwing.
+    const form = renderForm(parsed.root, seeded, [], () => {})
+    expect(form.querySelector('[data-path="host"]')).toBeTruthy()
+  })
+
+  test('default seeding fills a missing field from schema default on load', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        max: { type: 'integer', default: 20 },
+        key: { type: 'string' },
+      },
+    }
+    const parsed = parseSchema(schema)
+    if (!parsed.ok) throw new Error('bad')
+    const seeded = applyDefaults(parsed.root, { key: 'abc' })
+    expect(seeded).toEqual({ key: 'abc', max: 20 })
+    expect(validateConfig(schema, seeded).valid).toBe(true)
   })
 
   test('a constraint violation is caught and surfaced on the right field', () => {
