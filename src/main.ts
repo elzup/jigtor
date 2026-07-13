@@ -25,6 +25,7 @@ app.innerHTML = `
     <label class="filebtn">schema.json<input type="file" id="schema-input" accept=".json" hidden></label>
     <label class="filebtn">config.json<input type="file" id="config-input" accept=".json" hidden></label>
     <span class="hint">or drag &amp; drop files here</span>
+    <button id="load-example" class="filebtn" type="button">Load example</button>
   </section>
   <p id="status" class="status"></p>
   <main id="form-host"></main>
@@ -125,6 +126,24 @@ drop.addEventListener('drop', (e) => {
   e.preventDefault()
   drop.classList.remove('dragover')
   for (const file of Array.from(e.dataTransfer?.files ?? [])) void ingest(file)
+})
+
+app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click', () => {
+  Promise.all([
+    fetch('examples/config.schema.json').then((r) => r.text()),
+    fetch('examples/config.json').then((r) => r.text()),
+  ])
+    .then(([schemaText, configText]) => {
+      const s = parseJsonFile(schemaText)
+      const c = parseJsonFile(configText)
+      if (s.ok) state.schema = s.value
+      if (c.ok) state.config = c.value
+      rerender()
+    })
+    .catch((e) => {
+      status.textContent = `Could not load example: ${String(e)}`
+      status.className = 'status error'
+    })
 })
 
 exportBtn.addEventListener('click', () => {
