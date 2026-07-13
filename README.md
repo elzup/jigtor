@@ -7,6 +7,8 @@ export a valid config. No backend, no data leaves the browser.
 Built for configuring devices across varied IoT environments — lightweight and
 easy to run in restricted environments.
 
+**Practical usage flow:** [`docs/USAGE.md`](./docs/USAGE.md) · 日本語 [`docs/USAGE.ja.md`](./docs/USAGE.ja.md)
+
 ## Features (V1)
 
 - Load `schema.json` + `config.json` via file picker or drag-and-drop.
