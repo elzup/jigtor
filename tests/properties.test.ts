@@ -27,7 +27,9 @@ const jsonValue: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
     fc.constant(null),
     fc.boolean(),
     fc.integer(),
-    fc.double({ noNaN: true, noDefaultInfinity: true }),
+    // JSON has no signed zero (JSON.stringify(-0)==="0"), so -0 never survives a
+    // JSON round-trip. Normalize to +0 to keep these properties honest (not a bug).
+    fc.double({ noNaN: true, noDefaultInfinity: true }).map((x) => (x === 0 ? 0 : x)),
     fc.string(),
     fc.array(tie('node'), { maxLength: 4 }),
     fc.dictionary(safeKey, tie('node'), { maxKeys: 4 }),
@@ -129,7 +131,9 @@ describe('schema-infer / defaults meta-properties', () => {
   const jsonLeaf = fc.oneof(
     fc.string(),
     fc.integer(),
-    fc.double({ noNaN: true, noDefaultInfinity: true }),
+    // JSON has no signed zero (JSON.stringify(-0)==="0"), so -0 never survives a
+    // JSON round-trip. Normalize to +0 to keep these properties honest (not a bug).
+    fc.double({ noNaN: true, noDefaultInfinity: true }).map((x) => (x === 0 ? 0 : x)),
     fc.boolean(),
     fc.constant(null),
   )
