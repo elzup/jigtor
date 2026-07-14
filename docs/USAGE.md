@@ -1,7 +1,7 @@
 # jigtor — Practical Usage Flow
 
 Local-first, schema-driven `config.json` editor. This document describes how you
-actually use it end to end, plus the decisions that are still open for V1.
+actually use it end to end.
 
 > 日本語版: [`USAGE.ja.md`](./USAGE.ja.md)
 
@@ -30,31 +30,20 @@ loads it automatically. If not, you can generate a schema from `config.json`.
 
 #### Directory layout example
 
-For example, if you want to edit `config.json` in `my-device/`, you only need
-the target `config.json` at the start.
+jigtor is a hosted web app — **nothing is installed into your folder**. You only
+need the target `config.json` to start; **Open project folder** reads it and, on
+save, writes back to the same folder.
 
-**Before installing**
+**Your folder — before**
 
 ```text
 my-device/
 └── config.json
 ```
 
-After selecting `my-device/` with **Open project folder**, jigtor reads
-`config.json` and saves back to the same file.
-
-**After installing**
-
-```text
-my-device/
-└── config.json          ← loaded by jigtor
-```
-
-After editing, **Review & save…** writes back to `config.json`. If you generate
-or adjust a schema, jigtor can write `schema.json`; saved history can be kept in
-`.jigtor/history.json`.
-
-**After editing**
+**After editing**, **Review & save…** writes `config.json` back in place. If you
+generate or adjust a schema, jigtor can also write `schema.json`, and save
+history can be kept in `.jigtor/history.json`.
 
 ```text
 my-device/
@@ -89,7 +78,8 @@ The form is generated from the schema, with type-appropriate widgets:
 | `number` / `integer` otherwise | number input |
 | `boolean` | toggle |
 | `object` | nested fieldset |
-| `array` | read-only JSON (editable array UI is V2) |
+| `array` (primitive items) | per-item rows (add / remove / reorder) |
+| `array` (object items) | a collapsible subform per item |
 
 - **Live validation** (ajv): errors appear beside each field as you type; the
   input you are editing is never rebuilt, so slider drag / text caret stay smooth.
@@ -127,16 +117,6 @@ next visit. When folder permission is available, save history is also written to
 Unsupported (`$ref`, `oneOf` / `anyOf` / `allOf`, conditionals, remote schemas)
 degrade gracefully: such fields render as read-only placeholders and validation
 ignores the reference instead of failing the whole config.
-
-## Open decisions (not yet settled for V1)
-
-These affect the "real deployment" story and are intentionally undecided:
-
-1. **Log / history** — a single log file vs versioned history (e.g. gzipped
-   snapshots) that can be restored.
-2. **Schema-external fields** — fields present in the config but absent from the
-   schema. Today the renderer keeps them via a read-only "unknown" placeholder;
-   the policy (log to console + preserve vs ignore) is not yet finalized.
 
 ## Architecture (for contributors)
 
