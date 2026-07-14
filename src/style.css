@@ -310,6 +310,70 @@ legend {
   resize: vertical;
 }
 
+/* REQ-R20: object-item subforms — collapsible + accent rail instead of stacked
+   boxes, so nesting depth doesn't crowd the view. Depth steps the rail color. */
+.subform {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  margin: 0.35rem 0;
+}
+.subform .subform {
+  border-left-color: var(--warn);
+}
+.subform .subform .subform {
+  border-left-color: var(--ok);
+}
+.subform-summary {
+  cursor: pointer;
+  padding: 0.35rem 0.6rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+}
+.subform-summary::-webkit-details-marker {
+  display: none;
+}
+.subform-summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 0.7rem;
+  transition: transform 0.12s;
+}
+.subform[open] > .subform-summary::before {
+  transform: rotate(90deg);
+}
+.array-index {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+}
+.array-tools {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.subform-fields {
+  padding: 0.2rem 0.7rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.subform-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.subform-row > input[type='text'],
+.subform-row > input[type='number'],
+.subform-row > select,
+.subform-row > .field-array-editor {
+  width: 100%;
+}
+
 /* ---- radios / slider / toggle ---- */
 .field-radios {
   display: flex;

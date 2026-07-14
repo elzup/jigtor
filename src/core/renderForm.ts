@@ -3,7 +3,7 @@
 // through per-field `.field-errbox` containers that `refreshErrors` updates in
 // place, so re-validating on every edit never recreates the input the user is
 // interacting with (fixes slider-drag / text-caret jank — REQ-R16).
-import type { ArrayField, FieldError, FieldNode, FieldPath } from './types'
+import type { ArrayField, FieldError, FieldNode, FieldPath, ObjectField } from './types'
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
@@ -75,16 +75,30 @@ function labelEl(field: FieldNode): HTMLLabelElement {
   return label
 }
 
-// REQ-R20: array (list) editing. Primitive item types get per-item rows
-// (add / remove / reorder); object or otherwise-complex items fall back to a
-// live-parsed JSON textarea. Item inputs follow REQ-R19 (no native constraints).
-const PRIMITIVE_ITEM_KINDS = new Set(['string', 'number', 'boolean'])
-
+// REQ-R20: array (list) editing.
+//  - primitive items (string/number/boolean, enum -> select): one input row per
+//    item with add / remove / reorder;
+//  - object items: a COLLAPSIBLE subform per item (<details>) so deep nesting is
+//    managed by folding + accent color, NOT stacked div/fieldset boxes;
+//  - nested array / unknown items: a recursive value editor / JSON textarea.
+// Structural ops (add/remove/reorder) redraw only this editor's rows; value edits
+// update the array in place and emit the WHOLE array — preserving REQ-R16 and
+// keeping array-index paths out of the object-shaped setAt in the shell.
 function itemDefault(item: FieldNode): unknown {
   if (item.kind === 'boolean') return false
   if (item.kind === 'number') return 0
   if (item.kind === 'string' && item.enum) return item.enum[0] ?? ''
-  return ''
+  if (item.kind === 'string') return ''
+  if (item.kind === 'array') return []
+  if (item.kind === 'object') {
+    // seed required primitive children so a fresh item is minimally shaped
+    const seed: Record<string, unknown> = {}
+    for (const child of item.children) {
+      if (child.required) seed[child.path.at(-1)!] = itemDefault(child)
+    }
+    return seed
+  }
+  return null
 }
 
 function primitiveItemInput(
@@ -141,53 +155,137 @@ function iconBtn(label: string, cls: string, onClick: () => void): HTMLButtonEle
   return b
 }
 
-// Per-item editable list for arrays of primitives. Value edits update the array
-// WITHOUT redrawing rows (keeps caret/focus — REQ-R16); add/remove/reorder redraw.
-function primitiveArrayEditor(
-  field: ArrayField,
-  current: unknown,
-  onChange: OnChange,
+// Edit ONE node's value, decoupled from absolute paths: calls onValue with the
+// new value for that node. Recurses through object/array so subforms compose.
+function subValueEditor(node: FieldNode, value: unknown, onValue: (v: unknown) => void): HTMLElement {
+  if (node.kind === 'object') {
+    const d = document.createElement('details')
+    d.className = 'subform'
+    d.open = true
+    const s = document.createElement('summary')
+    s.className = 'subform-summary'
+    s.textContent = node.required ? `${node.label} *` : node.label
+    d.append(s, objectFields(node, value, onValue))
+    return d
+  }
+  if (node.kind === 'array') return arrayEditor(node, value, onValue)
+  if (node.kind === 'unknown') return jsonValueEditor(value, onValue)
+  return primitiveItemInput(node, value, onValue)
+}
+
+// Child-field rows for an object value. Keeps a local `current` so edits to
+// different fields compose without re-rendering (caret preserved — REQ-R16).
+function objectFields(
+  node: ObjectField,
+  initial: unknown,
+  onValue: (v: unknown) => void,
 ): HTMLElement {
+  const box = document.createElement('div')
+  box.className = 'subform-fields'
+  let current: Record<string, unknown> =
+    typeof initial === 'object' && initial !== null && !Array.isArray(initial)
+      ? { ...(initial as Record<string, unknown>) }
+      : {}
+  for (const child of node.children) {
+    const key = child.path.at(-1)!
+    const row = document.createElement('div')
+    row.className = 'subform-row'
+    const name = document.createElement('span')
+    name.className = 'field-name'
+    name.textContent = child.required ? `${child.label} *` : child.label
+    const editor = subValueEditor(child, current[key], (nv) => {
+      current = { ...current, [key]: nv }
+      onValue(current)
+    })
+    row.append(name, editor)
+    box.appendChild(row)
+  }
+  return box
+}
+
+// Generic JSON value editor for `unknown` items (V1 can't type them): commit any
+// value that parses; invalid JSON shows an inline note and does not commit.
+function jsonValueEditor(value: unknown, onValue: (v: unknown) => void): HTMLElement {
+  const box = document.createElement('div')
+  box.className = 'field-array-json'
+  const ta = document.createElement('textarea')
+  ta.className = 'array-json'
+  ta.value = JSON.stringify(value ?? null, null, 2)
+  const note = document.createElement('p')
+  note.className = 'field-error'
+  note.hidden = true
+  ta.addEventListener('input', () => {
+    try {
+      const parsed = JSON.parse(ta.value)
+      note.hidden = true
+      onValue(parsed)
+    } catch {
+      note.hidden = false
+      note.textContent = 'invalid JSON — fix to apply'
+    }
+  })
+  box.append(ta, note)
+  return box
+}
+
+// Array editor. `onValue` receives the whole new array on ANY change. Object
+// items render as collapsible subforms (fold + color for depth); primitives and
+// other items render inline rows. Value edits don't redraw; structural ops do.
+function arrayEditor(field: ArrayField, current: unknown, onValue: (v: unknown) => void): HTMLElement {
   const editor = document.createElement('div')
   editor.className = 'field-array-editor'
   editor.setAttribute('data-path', pathKey(field.path))
   let items = Array.isArray(current) ? [...current] : []
   const rows = document.createElement('div')
   rows.className = 'array-rows'
-  const emit = () => onChange(field.path, items)
+  const emit = () => onValue(items)
+  const setItem = (i: number, v: unknown) => {
+    items = items.map((x, j) => (j === i ? v : x))
+    emit()
+  }
+  const moveItem = (i: number, delta: number) => {
+    const j = i + delta
+    if (j < 0 || j >= items.length) return
+    const next = [...items]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    items = next
+    emit()
+    drawRows()
+  }
+  const removeItem = (i: number) => {
+    items = items.filter((_, j) => j !== i)
+    emit()
+    drawRows()
+  }
 
-  const drawRows = (): void => {
+  function drawRows(): void {
     rows.replaceChildren()
     items.forEach((val, i) => {
-      const row = document.createElement('div')
-      row.className = 'array-row'
-      const input = primitiveItemInput(field.item, val, (v) => {
-        items = items.map((x, j) => (j === i ? v : x))
-        emit()
-      })
-      const up = iconBtn('↑', 'array-btn', () => {
-        if (i === 0) return
-        const next = [...items]
-        ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
-        items = next
-        emit()
-        drawRows()
-      })
-      const down = iconBtn('↓', 'array-btn', () => {
-        if (i >= items.length - 1) return
-        const next = [...items]
-        ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
-        items = next
-        emit()
-        drawRows()
-      })
-      const rm = iconBtn('✕', 'array-btn array-rm', () => {
-        items = items.filter((_, j) => j !== i)
-        emit()
-        drawRows()
-      })
-      row.append(input, up, down, rm)
-      rows.appendChild(row)
+      const up = iconBtn('↑', 'array-btn', () => moveItem(i, -1))
+      const down = iconBtn('↓', 'array-btn', () => moveItem(i, 1))
+      const rm = iconBtn('✕', 'array-btn array-rm', () => removeItem(i))
+      if (field.item.kind === 'object') {
+        const d = document.createElement('details')
+        d.className = 'array-item subform'
+        d.open = true
+        const s = document.createElement('summary')
+        s.className = 'subform-summary'
+        const idx = document.createElement('span')
+        idx.className = 'array-index'
+        idx.textContent = `#${i}`
+        const tools = document.createElement('span')
+        tools.className = 'array-tools'
+        tools.append(up, down, rm)
+        s.append(idx, tools)
+        d.append(s, objectFields(field.item, val, (nv) => setItem(i, nv)))
+        rows.appendChild(d)
+      } else {
+        const row = document.createElement('div')
+        row.className = 'array-row'
+        const itemEditor = subValueEditor(field.item, val, (nv) => setItem(i, nv))
+        row.append(itemEditor, up, down, rm)
+        rows.appendChild(row)
+      }
     })
   }
 
@@ -199,44 +297,6 @@ function primitiveArrayEditor(
   drawRows()
   editor.append(rows, add)
   return editor
-}
-
-// Fallback for object/complex item types: edit the whole array as JSON text,
-// committing only when it parses (invalid JSON shows an inline note).
-function jsonArrayEditor(
-  field: ArrayField,
-  current: unknown,
-  onChange: OnChange,
-): HTMLElement {
-  const box = document.createElement('div')
-  box.className = 'field-array-json'
-  const ta = document.createElement('textarea')
-  ta.className = 'array-json'
-  ta.setAttribute('data-path', pathKey(field.path))
-  ta.value = JSON.stringify(current ?? [], null, 2)
-  const note = document.createElement('p')
-  note.className = 'field-error'
-  note.hidden = true
-  ta.addEventListener('input', () => {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(ta.value)
-    } catch {
-      note.hidden = false
-      note.textContent = 'invalid JSON — fix to apply'
-      return
-    }
-    // FIND-A4: this is an array field — don't silently commit a scalar/object.
-    if (!Array.isArray(parsed)) {
-      note.hidden = false
-      note.textContent = 'must be a JSON array — fix to apply'
-      return
-    }
-    note.hidden = true
-    onChange(field.path, parsed)
-  })
-  box.append(ta, note)
-  return box
 }
 
 function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLElement {
@@ -293,11 +353,9 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
   }
 
   if (field.kind === 'array') {
-    // REQ-R20: primitive item arrays -> per-item rows; complex -> JSON textarea.
-    const editor = PRIMITIVE_ITEM_KINDS.has(field.item.kind)
-      ? primitiveArrayEditor(field, current, onChange)
-      : jsonArrayEditor(field, current, onChange)
-    wrap.appendChild(editor)
+    // REQ-R20: unified editor — primitive rows, object subforms, recursive.
+    // Emits the whole array via onChange(path, value) (no array-index paths).
+    wrap.appendChild(arrayEditor(field, current, (v) => onChange(field.path, v)))
     return finish()
   }
 

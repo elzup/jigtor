@@ -393,30 +393,56 @@ describe('spec:renderer', () => {
       expect(changes.at(-1)).toEqual({ path: ['tags'], value: ['b', 'a', 'c'] })
     })
 
-    test('object item array falls back to a JSON textarea that commits on valid parse', () => {
-      const { el, changes } = build(listSchema, { rules: [{ p: 'x' }] })
-      const ta = el.querySelector('textarea.array-json[data-path="rules"]') as HTMLTextAreaElement
-      expect(ta).toBeTruthy()
-      ta.value = '[{"p":"y"}]'
-      ta.dispatchEvent(new Event('input', { bubbles: true }))
-      expect(changes).toContainEqual({ path: ['rules'], value: [{ p: 'y' }] })
-      // invalid JSON does not commit
-      const before = changes.length
-      ta.value = '[{bad'
-      ta.dispatchEvent(new Event('input', { bubbles: true }))
-      expect(changes).toHaveLength(before)
+    test('object item array -> a collapsible subform per item (details), no JSON textarea', () => {
+      const { el } = build(listSchema, { rules: [{ p: 'x' }, { p: 'y' }] })
+      const editor = el.querySelector('.field-array-editor[data-path="rules"]')!
+      const items = editor.querySelectorAll('details.array-item.subform')
+      expect(items).toHaveLength(2)
+      // collapsible with an index summary, and each child field rendered as an input
+      expect(items[0]!.querySelector('summary .array-index')?.textContent).toBe('#0')
+      const firstInput = items[0]!.querySelector('.subform-row input[type="text"]') as HTMLInputElement
+      expect(firstInput.value).toBe('x')
+      // no whole-array JSON textarea fallback anymore
+      expect(el.querySelector('textarea.array-json')).toBeNull()
     })
 
-    test('FIND-A4: JSON that parses to a non-array is rejected, not committed', () => {
+    test('editing a subform field emits the whole array with that item updated', () => {
       const { el, changes } = build(listSchema, { rules: [{ p: 'x' }] })
-      const ta = el.querySelector('textarea.array-json[data-path="rules"]') as HTMLTextAreaElement
-      const before = changes.length
-      for (const bad of ['42', '"x"', '{"a":1}']) {
-        ta.value = bad
-        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      const input = el.querySelector(
+        'details.array-item .subform-row input[type="text"]',
+      ) as HTMLInputElement
+      input.value = 'y'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(changes).toContainEqual({ path: ['rules'], value: [{ p: 'y' }] })
+    })
+
+    test('object array add seeds required children; two fields compose without clobbering', () => {
+      const twoField = {
+        type: 'object',
+        properties: {
+          rules: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['path'],
+              properties: { path: { type: 'string' }, allow: { type: 'boolean' } },
+            },
+          },
+        },
       }
-      expect(changes).toHaveLength(before) // nothing committed
-      expect(ta.parentElement!.querySelector('.field-error')!.textContent).toContain('array')
+      const { el, changes } = build(twoField, { rules: [] })
+      ;(el.querySelector('.array-add') as HTMLButtonElement).click()
+      // required primitive child seeded
+      expect(changes.at(-1)).toEqual({ path: ['rules'], value: [{ path: '' }] })
+      // edit BOTH fields of the item; the second edit must not clobber the first
+      const item = el.querySelector('details.array-item')!
+      const pathInput = item.querySelector('input[type="text"]') as HTMLInputElement
+      pathInput.value = '/api'
+      pathInput.dispatchEvent(new Event('input', { bubbles: true }))
+      const allow = item.querySelector('input[type="checkbox"]') as HTMLInputElement
+      allow.checked = true
+      allow.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(changes.at(-1)).toEqual({ path: ['rules'], value: [{ path: '/api', allow: true }] })
     })
 
     test('FIND-A2: clearing a number item emits 0, never undefined/null into the array', () => {
