@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install package runner
+        run: npm install -g @antfu/ni
+
+      - name: Install dependencies
+        run: ni --frozen
+
+      - name: Build
+        run: nr build
+
+      - name: Package release asset
+        env:
+          RELEASE_NAME: jigtor-${{ github.ref_name }}
+        run: |
+          mkdir -p "release/${RELEASE_NAME}"
+          cp -R dist/. "release/${RELEASE_NAME}/"
+          cat > "release/${RELEASE_NAME}/README.txt" <<'EOF'
+          jigtor
+
+          Open index.html in your browser.
+          All data stays in the browser; there is no backend.
+          EOF
+          (cd release && zip -qr "${RELEASE_NAME}.zip" "${RELEASE_NAME}")
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG_NAME" \
+            "release/jigtor-${TAG_NAME}.zip" \
+            --title "jigtor ${TAG_NAME}" \
+            --notes "Download jigtor-${TAG_NAME}.zip, unzip it, and open index.html in your browser."

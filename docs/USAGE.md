@@ -16,10 +16,15 @@ open app ──▶ load schema + config ──▶ edit (live validation) ──�
 
 ### 1. Open the app
 
-Static web app, no backend, nothing leaves the browser.
+Use the packaged zip from GitHub Releases. No install or local server is needed.
 
-- Dev: `nr dev` → `http://jigtor.localhost` (via portless)
-- Prod: `nr build`, then open/host `dist/` anywhere (even `file://`)
+1. Open the GitHub **Releases** page.
+2. Download `jigtor-vX.Y.Z.zip` from the latest release.
+3. Unzip it.
+4. Open `index.html` from the extracted folder in your browser.
+
+This is a static web app with no backend. Loaded schema / config files and edits
+stay inside the browser and are not sent to an external server.
 
 ### 2. Load your files
 

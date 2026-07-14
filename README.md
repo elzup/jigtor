@@ -9,6 +9,12 @@ easy to run in restricted environments.
 
 **Practical usage flow:** [`docs/USAGE.md`](./docs/USAGE.md) · 日本語 [`docs/USAGE.ja.md`](./docs/USAGE.ja.md)
 
+## Use
+
+Download `jigtor-vX.Y.Z.zip` from GitHub Releases, unzip it, and open
+`index.html` in your browser. The app is fully static; loaded files and edits
+stay in the browser.
+
 ## Features (V1)
 
 - Load `schema.json` + `config.json` via file picker or drag-and-drop.
