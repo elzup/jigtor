@@ -10,7 +10,7 @@ import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
 import { diffConfig, type Change } from './core/diffConfig'
 import {
-  recordSave,
+  recordSnapshot,
   fieldHistory,
   historyPaths,
   parseHistory,
@@ -26,7 +26,7 @@ import {
   type SchemaRow,
 } from './core/schemaEdit'
 import type { FieldNode, FieldPath } from './core/types'
-import exampleSchemaText from '../examples/config.schema.json?raw'
+import exampleSchemaText from '../examples/.jigtor/schema.json?raw'
 import exampleConfigText from '../examples/config.json?raw'
 
 const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const
@@ -37,7 +37,7 @@ const state: State = { schema: null, config: {}, original: {} }
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
 
 type WritableFileStreamLike = {
-  write: (data: string) => Promise<void>
+  write: (data: string | BufferSource | Blob) => Promise<void>
   close: () => Promise<void>
 }
 type FileSystemFileHandleLike = {
@@ -644,18 +644,26 @@ async function readJsonHandle(handle: FileSystemFileHandleLike): Promise<unknown
   return parsed.value
 }
 
-async function readOptionalJsonFile(
-  dir: FileSystemDirectoryHandleLike,
-  names: readonly string[],
-): Promise<unknown | null> {
-  for (const name of names) {
-    try {
-      return await readJsonHandle(await dir.getFileHandle(name))
-    } catch {
-      /* try next conventional name */
-    }
+// All jigtor artifacts live under `.jigtor/`, read from the SAME path they are
+// written to (schema.json plain, history.json.gz gzipped) — the project root
+// holds only the user's own config.json.
+async function readJigtorSchema(dir: FileSystemDirectoryHandleLike): Promise<unknown | null> {
+  try {
+    const jigtorDir = await dir.getDirectoryHandle('.jigtor')
+    return await readJsonHandle(await jigtorDir.getFileHandle('schema.json'))
+  } catch {
+    return null
   }
-  return null
+}
+
+async function readJigtorHistory(dir: FileSystemDirectoryHandleLike): Promise<SaveHistory> {
+  try {
+    const jigtorDir = await dir.getDirectoryHandle('.jigtor')
+    const file = await (await jigtorDir.getFileHandle('history.json.gz')).getFile()
+    return parseHistory(await gunzip(await file.arrayBuffer()))
+  } catch {
+    return []
+  }
 }
 
 async function openProjectFolder(): Promise<void> {
@@ -667,7 +675,9 @@ async function openProjectFolder(): Promise<void> {
   const dir = await filePickerWindow.showDirectoryPicker()
   projectDirectoryHandle = dir
   configFileHandle = await dir.getFileHandle('config.json')
-  const schema = await readOptionalJsonFile(dir, ['schema.json', 'config.schema.json'])
+  const schema = await readJigtorSchema(dir)
+  history = await readJigtorHistory(dir) // versioned snapshots from .jigtor/history.json.gz
+  renderHistoryTab()
   markNewData()
   state.schema = schema
   loadConfigFromHandle(await readJsonHandle(configFileHandle), configFileHandle)
@@ -785,24 +795,39 @@ async function ensureWritablePermission(handle: FileSystemFileHandleLike): Promi
   return handle.queryPermission === undefined && handle.requestPermission === undefined
 }
 
-async function writeFileHandle(handle: FileSystemFileHandleLike, text: string): Promise<void> {
+async function writeFileHandle(
+  handle: FileSystemFileHandleLike,
+  data: string | BufferSource | Blob,
+): Promise<void> {
   const writable = await handle.createWritable()
-  await writable.write(text)
+  await writable.write(data)
   await writable.close()
 }
 
+// gzip via the browser Compression Streams API (keeps the versioned history small).
+async function gzip(text: string): Promise<Blob> {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
+  return await new Response(stream).blob()
+}
+async function gunzip(bytes: ArrayBuffer): Promise<string> {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+  return await new Response(stream).text()
+}
+
+// Persist jigtor artifacts under `.jigtor/` (same paths readJigtor* read from):
+// the current schema (only when one exists) and the gzipped version history.
 async function writeProjectMetadata(): Promise<void> {
   if (projectDirectoryHandle === null) return
+  const jigtorDir = await projectDirectoryHandle.getDirectoryHandle('.jigtor', { create: true })
   if (state.schema !== null) {
     await writeFileHandle(
-      await projectDirectoryHandle.getFileHandle('schema.json', { create: true }),
+      await jigtorDir.getFileHandle('schema.json', { create: true }),
       serializeConfig(state.schema),
     )
   }
-  const jigtorDir = await projectDirectoryHandle.getDirectoryHandle('.jigtor', { create: true })
   await writeFileHandle(
-    await jigtorDir.getFileHandle('history.json', { create: true }),
-    serializeConfig(history),
+    await jigtorDir.getFileHandle('history.json.gz', { create: true }),
+    await gzip(JSON.stringify(history)),
   )
 }
 
@@ -819,9 +844,9 @@ async function saveConfig(): Promise<'direct' | 'download'> {
 }
 
 function markSaved(): void {
-  // spec:history (REQ-H01): record this save's per-field changes before the
-  // baseline moves, then advance the baseline.
-  history = recordSave(history, state.original, state.config, Date.now())
+  // spec:history (REQ-H01): append a full-config snapshot of this saved version,
+  // then advance the baseline.
+  history = recordSnapshot(history, state.config, Date.now())
   persistHistory()
   renderHistoryTab()
   state.original = clone(state.config) // new baseline after a save
