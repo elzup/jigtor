@@ -12,13 +12,17 @@ in the usage guide.
 - **Save mechanism** — RESOLVED: **File System Access API** — "Open project
   folder" / "Open config.json" opens a handle and **saves back in place**.
   Browsers without the API (Safari/Firefox) fall back to downloading `config.json`.
-- **Directory layout / schema file name** — RESOLVED: open a folder containing
-  `config.json`; schema auto-detected as **`schema.json`** then **`config.schema.json`**.
-  On save, a generated/adjusted schema is written as `schema.json`; save history is
-  written to **`.jigtor/history.json`**.
-- **Log / history storage** — RESOLVED (V1): a **single `.jigtor/history.json`**
-  (plus `localStorage`), per-field append-only. Gzipped/versioned snapshots are
-  deferred; the single-file log is sufficient for V1.
+- **Directory layout / jigtor artifacts** — RESOLVED: open a folder containing
+  `config.json` (the project root holds only the user's own file). **All jigtor
+  artifacts live under `.jigtor/`**, read from the SAME path they are written to
+  (no read/write asymmetry): the schema at **`.jigtor/schema.json`**, save history
+  at **`.jigtor/history.json.gz`**.
+- **Log / history storage** — RESOLVED: **full-config versioned snapshots**, gzip
+  compressed at **`.jigtor/history.json.gz`** (plus a `localStorage` mirror), capped
+  at the most recent **200** versions. Any past version can be restored; the
+  per-field "how did .server.port change" view is DERIVED by diffing consecutive
+  versions (`deriveFieldEntries`). (Supersedes the earlier single-file per-field
+  append-only log.)
 
 ## Open
 

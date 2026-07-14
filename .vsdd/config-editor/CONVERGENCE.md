@@ -28,7 +28,7 @@ CONVERGED after R12→R13. Added/changed:
 - **REQ-R18**: per-field meta row — live `"key": value`; when changed, `"key": before → "key": after` + reset, refreshed in place (no input rebuild).
 - **REQ-R19**: no native input constraints (maxLength/pattern/min/max/step); violations surface as ajv warnings only.
 - **REQ-R20**: editable arrays — primitive items get per-item rows (add/remove/reorder), complex items fall back to a JSON textarea that commits only a valid array.
-- **spec:history**: per-field, per-save change log (`recordSave`/`fieldHistory`/`historyPaths`/`parseHistory`), persisted to localStorage, shown in a History tab grouped by field.
+- **spec:history**: full-config versioned snapshots (`recordSnapshot`/`deriveFieldEntries`/`fieldHistory`/`historyPaths`/`parseHistory`), gzip-compressed at `.jigtor/history.json.gz` (localStorage mirror), capped at latest 200; per-field view DERIVED by diffing consecutive versions, shown in a History tab grouped by field.
 
 Adversary **R12** = FAIL (1 HIGH reset no-op via applyDefaults re-seed loop; 1 MED number-array undefined→null; +H07 untested, A4 unguarded JSON, R02/R19 spec contradiction) → all fixed. **R13** = PASS (zero critical/high; each fix confirmed non-band-aided, FIND-R8 non-regression verified) + 2 LOW residuals hardened. 138 tests green; build 47.6 KB gzip.
 

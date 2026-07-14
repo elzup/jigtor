@@ -19,13 +19,13 @@ coherence:
 - REQ-RD02: WHEN 利用者が `Open project folder` で編集対象ディレクトリを選ぶ
   THE SYSTEM SHALL そのディレクトリ内の `config.json` を読み込み、保存時に同じ
   `config.json` を直接上書きする。
-- REQ-RD03: WHEN 同じディレクトリに `schema.json` または `config.schema.json` が存在する
-  THE SYSTEM SHALL それを schema として読み込む。
+- REQ-RD03: WHEN 選んだディレクトリに `.jigtor/schema.json` が存在する
+  THE SYSTEM SHALL それを schema として読み込む(書き込みと同じパス、読み書き対称)。
 - REQ-RD04: WHEN 利用者が schema を持っていない
   THE SYSTEM SHALL `config.json` だけを読み込み、`Generate schema from config` で編集用 schema を生成できる。
 - REQ-RD05: WHEN 利用者が保存する
-  THE SYSTEM SHALL 現在の schema を `schema.json` として、保存履歴を `.jigtor/history.json`
-  として同じプロジェクトディレクトリ配下に書ける。
+  THE SYSTEM SHALL jigtor の生成物をすべて `.jigtor/` 配下に書く: 現在の schema を
+  `.jigtor/schema.json`、全バージョン履歴を gzip 圧縮した `.jigtor/history.json.gz`。
 - REQ-RD06: THE SYSTEM SHALL config / schema の内容をアプリ配信サーバーへ送信しない。
   読み書きは File System Access API を通じてブラウザ内で完結する。
 - REQ-RD07: IF File System Access API が利用できないブラウザで開かれた

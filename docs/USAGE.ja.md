@@ -23,7 +23,7 @@
 3. `config.json` があるプロジェクトディレクトリを選ぶ
 4. ブラウザの権限確認で許可する
 
-同じディレクトリに `schema.json` または `config.schema.json` があれば自動で読み込みます。
+前回のセッションで作られた `.jigtor/schema.json` があれば自動で読み込みます。
 無ければ `config.json` から schema を生成して編集できます。
 
 #### ディレクトリ構造の例
@@ -40,15 +40,15 @@ my-device/
 ```
 
 **編集後**、**Review & save…** から保存すると `config.json` が直接更新されます。
-schema を生成・調整した場合は `schema.json`、保存履歴は `.jigtor/history.json` として
-同じフォルダに残せます。
+jigtor が書き出すもの(現在の schema と、全保存バージョンの gzip ログ)はすべて
+`.jigtor/` にまとめて置かれます。
 
 ```text
 my-device/
-├── config.json          ← 直接更新される
-├── schema.json          ← 任意: 生成・調整した schema
-└── .jigtor/
-    └── history.json     ← 任意: 保存履歴
+├── config.json              ← 直接更新される(あなたのファイル、root 直下)
+└── .jigtor/                 ← jigtor が書き出すものはすべてここ
+    ├── schema.json          ← 現在の schema(読み書きとも同じパス)
+    └── history.json.gz      ← gzip 圧縮したバージョン履歴(最新 200 版)
 ```
 
 ### 2. ファイルを読み込む
@@ -101,7 +101,8 @@ my-device/
 ### 6. セッション継続
 
 直近の schema + config を `localStorage` に保存し、次回自動復元。フォルダ権限がある場合は
-保存履歴を `.jigtor/history.json` にも残します。**Forget saved** でブラウザ内の復元情報を消去。
+全バージョン履歴を `.jigtor/history.json.gz`(gzip 圧縮、最新 200 版)にも残します。
+**Forget saved** でブラウザ内の復元情報を消去。
 
 ## 対応する JSON Schema サブセット(V1)
 

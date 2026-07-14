@@ -25,7 +25,7 @@ server.
 3. Select the project directory that contains `config.json`.
 4. Grant the browser permission.
 
-If the same directory contains `schema.json` or `config.schema.json`, jigtor
+If the folder already has a `.jigtor/schema.json` from a previous session, jigtor
 loads it automatically. If not, you can generate a schema from `config.json`.
 
 #### Directory layout example
@@ -41,16 +41,16 @@ my-device/
 └── config.json
 ```
 
-**After editing**, **Review & save…** writes `config.json` back in place. If you
-generate or adjust a schema, jigtor can also write `schema.json`, and save
-history can be kept in `.jigtor/history.json`.
+**After editing**, **Review & save…** writes `config.json` back in place. All
+jigtor artifacts are kept together under `.jigtor/`: the current schema and a
+gzip-compressed log of every saved version.
 
 ```text
 my-device/
-├── config.json          ← updated in place
-├── schema.json          ← optional generated/adjusted schema
-└── .jigtor/
-    └── history.json     ← optional save history
+├── config.json              ← updated in place (your file, at the root)
+└── .jigtor/                 ← everything jigtor writes lives here
+    ├── schema.json          ← current schema (read from / written to the same path)
+    └── history.json.gz      ← gzipped versioned snapshots (latest 200)
 ```
 
 ### 2. Load your files
@@ -105,8 +105,9 @@ is allowed even when invalid — you are never blocked from preserving your work
 ### 6. Session continuity
 
 The last schema + config is persisted to `localStorage` and auto-restored on the
-next visit. When folder permission is available, save history is also written to
-`.jigtor/history.json`. **Forget saved** clears the browser restore data.
+next visit. When folder permission is available, the full version history is also
+written to `.jigtor/history.json.gz` (gzipped, latest 200 versions). **Forget
+saved** clears the browser restore data.
 
 ## Supported JSON Schema subset (V1)
 
