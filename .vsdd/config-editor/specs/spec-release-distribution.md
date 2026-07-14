@@ -1,6 +1,6 @@
 ---
 id: spec:release-distribution
-title: release-distribution — GitHub Release artifact と .jigtor 配置
+title: release-distribution — hosted app と config.json 直接保存
 coherence:
   depends_on:
     - spec:file-io
@@ -9,22 +9,29 @@ coherence:
 
 # spec:release-distribution
 
-GitHub Release で配る利用者向け artifact と、編集対象プロジェクト内での配置規約を定義する。
+オンライン Web アプリとして配信し、File System Access API で `config.json` を直接保存する
+利用者向け導線を定義する。
 
 ## 要件 (EARS)
 
-- REQ-RD01: THE SYSTEM SHALL GitHub Release asset として、source archive とは別に
-  利用者向け zip (`jigtor-vX.Y.Z.zip`) を提供する。
-- REQ-RD02: THE SYSTEM SHALL Release zip 展開後の `index.html` を `file://` で直接開ける形にする。
-  つまり `index.html` は実行に必要な JS / CSS を内包し、外部 asset module の読み込みに依存しない。
-- REQ-RD03: THE SYSTEM SHALL 編集対象プロジェクト直下の `.jigtor/` に jigtor 本体と
-  任意の schema / backup をまとめて置ける配置を標準導線として説明する。
+- REQ-RD01: THE SYSTEM SHALL 利用者がオンライン URL を開くだけで jigtor を起動できる
+  hosted Web app として配信する。
+- REQ-RD02: WHEN 利用者が `Open project folder` で編集対象ディレクトリを選ぶ
+  THE SYSTEM SHALL そのディレクトリ内の `config.json` を読み込み、保存時に同じ
+  `config.json` を直接上書きする。
+- REQ-RD03: WHEN 同じディレクトリに `schema.json` または `config.schema.json` が存在する
+  THE SYSTEM SHALL それを schema として読み込む。
 - REQ-RD04: WHEN 利用者が schema を持っていない
   THE SYSTEM SHALL `config.json` だけを読み込み、`Generate schema from config` で編集用 schema を生成できる。
-- REQ-RD05: THE SYSTEM SHALL ブラウザ外へ config / schema を送信しない。読み込みは file picker /
-  drag-and-drop、書き出しはブラウザ download とする。
+- REQ-RD05: WHEN 利用者が保存する
+  THE SYSTEM SHALL 現在の schema を `schema.json` として、保存履歴を `.jigtor/history.json`
+  として同じプロジェクトディレクトリ配下に書ける。
+- REQ-RD06: THE SYSTEM SHALL config / schema の内容をアプリ配信サーバーへ送信しない。
+  読み書きは File System Access API を通じてブラウザ内で完結する。
+- REQ-RD07: IF File System Access API が利用できないブラウザで開かれた
+  THEN THE SYSTEM SHALL 直接上書き保存ができないことを明示し、download fallback に限定する。
 
 ## 非要件
 
-- V1 では File System Access API による元ファイルの直接上書きは要求しない。
 - V1 では Rust launcher / Tauri wrapper は要求しない。
+- V1 では GitHub Release zip を主要導線にしない。

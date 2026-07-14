@@ -1,5 +1,5 @@
 // spec:history — per-field, per-save change history.
-// A "save" is an export/commit of the config. On each save we diff the previously
+// A "save" is a commit of the config. On each save we diff the previously
 // saved config against the newly saved one and append ONE entry per changed field,
 // stamped with the save time. The log is append-only and groupable by field path,
 // so the UI can show "how did .server.port change over time".

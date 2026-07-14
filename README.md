@@ -1,8 +1,8 @@
 # jigtor
 
-Local-first, **schema-driven `config.json` editor**. Load a JSON Schema and a
-config file, edit through generated form controls with live validation, and
-export a valid config. No backend, no data leaves the browser.
+Local-first, **schema-driven `config.json` editor**. Open a project folder, edit
+`config.json` through generated form controls with live validation, and save
+back to the same file. No backend, no data leaves the browser.
 
 Built for configuring devices across varied IoT environments — lightweight and
 easy to run in restricted environments.
@@ -11,17 +11,18 @@ easy to run in restricted environments.
 
 ## Use
 
-From GitHub Releases, download the `jigtor-vX.Y.Z.zip` asset, not the source
-code archive. Unzip it into the target project as `.jigtor/`, then open
-`.jigtor/index.html` in your browser. No install, Python, or server is required;
-loaded files and edits stay in the browser.
+Open the hosted jigtor app in a Chromium-based browser, choose **Open project
+folder**, edit `config.json`, then save back to the same file. Schema and
+history can be written alongside the project; loaded files and edits stay in the
+browser.
 
 ## Features (V1)
 
-- Load `schema.json` + `config.json` via file picker or drag-and-drop.
+- Open a project folder and save edits back to `config.json`.
+- Load `schema.json` / `config.schema.json` when present, or infer a schema from config.
 - Form controls generated from a practical JSON Schema subset.
 - Live validation (via [ajv](https://ajv.js.org/)) with errors shown beside each field.
-- Export / download the edited `config.json` (2-space indent).
+- Save the edited `config.json` in place (download fallback for unsupported browsers).
 
 ### Supported JSON Schema subset
 
@@ -63,4 +64,4 @@ property-based hardening → convergence. The full trace, spec dependency graph
 
 - `$ref` resolution and `oneOf`/`anyOf`/`allOf`.
 - Editable array UI (V1 is read-only for arrays).
-- Optional [Tauri](https://tauri.app/) wrapper for native file open/save.
+- Optional [Tauri](https://tauri.app/) wrapper for non-Chromium environments.

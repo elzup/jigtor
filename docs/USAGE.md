@@ -8,35 +8,30 @@ actually use it end to end, plus the decisions that are still open for V1.
 ## As-built flow (what works today)
 
 ```
-open app ──▶ load schema + config ──▶ edit (live validation) ──▶ review diff ──▶ export config.json
+open app ──▶ choose project folder ──▶ edit (live validation) ──▶ review diff ──▶ save config.json in place
                     │                        │                                         │
               (or infer schema         (unsaved-change prompt)                  (session saved to
-               from config only)                                                localStorage, auto-restored)
+               from config only)                                                schema/history also saved)
 ```
 
-### 1. Open the app
+### 1. Open the online app
 
-Download the packaged release asset and open it directly in your browser. You do
-not need Git, Node.js, npm, Python, or a local server. The release `index.html`
-is a single HTML file with JS / CSS embedded, so it can be opened through
-`file://`.
+Open the hosted jigtor app in a Chromium-based browser such as Chrome or Edge.
+The app is served online, but your `config.json` contents are not sent to the
+server.
 
-1. Open the latest version on the GitHub **Releases** page.
-2. Under **Assets**, download `jigtor-vX.Y.Z.zip`.
-   - Choose `jigtor-...zip`, not `Source code (zip)` or `Source code (tar.gz)`.
-3. Unzip the downloaded file.
-4. Put the extracted folder in the target project as `.jigtor/`.
-5. Double-click `.jigtor/index.html`.
-   - To choose a browser, drag `index.html` into Chrome, Edge, Firefox, or Safari.
+1. Open the jigtor URL.
+2. Click **Open project folder**.
+3. Select the project directory that contains `config.json`.
+4. Grant the browser permission.
 
-This is a static web app with no backend. Loaded schema / config files and edits
-stay inside the browser and are not sent to an external server.
+If the same directory contains `schema.json` or `config.schema.json`, jigtor
+loads it automatically. If not, you can generate a schema from `config.json`.
 
 #### Directory layout example
 
-For example, if you want to edit `config.json` in `my-device/`, before installing
-jigtor you only have the target `config.json`. A `config.schema.json` file can be
-loaded if you already have one, but it is not required at the start.
+For example, if you want to edit `config.json` in `my-device/`, you only need
+the target `config.json` at the start.
 
 **Before installing**
 
@@ -45,44 +40,39 @@ my-device/
 └── config.json
 ```
 
-After downloading `jigtor-vX.Y.Z.zip` from GitHub Releases and unzipping it,
-rename the folder to `.jigtor` and place it inside `my-device/`. Keep the jigtor
-app, optional schema, and backups together under `.jigtor/`.
+After selecting `my-device/` with **Open project folder**, jigtor reads
+`config.json` and saves back to the same file.
 
 **After installing**
 
 ```text
 my-device/
-├── config.json
-└── .jigtor/
-    ├── index.html        ← open this in your browser
-    └── examples/
+└── config.json          ← loaded by jigtor
 ```
 
-Load `config.json` in jigtor, then click **Generate schema from config** to create
-an editable schema. If you already have `config.schema.json`, load it too. After
-editing, use **Review & save…** to download a new `config.json`. If needed, keep
-the old file as a backup and replace it with the downloaded one.
+After editing, **Review & save…** writes back to `config.json`. If you generate
+or adjust a schema, jigtor can write `schema.json`; saved history can be kept in
+`.jigtor/history.json`.
 
 **After editing**
 
 ```text
 my-device/
-├── config.json          ← replace with the edited config
+├── config.json          ← updated in place
+├── schema.json          ← optional generated/adjusted schema
 └── .jigtor/
-    ├── index.html
-    ├── config.before.json   ← optional backup of the old config
-    ├── config.schema.json   ← optional, if you keep the generated/adjusted schema
-    └── examples/
+    └── history.json     ← optional save history
 ```
 
 ### 2. Load your files
 
-Load a **config** file via file picker or drag-and-drop. A **JSON Schema** file is
-optional.
+Normally, choose the directory via **Open project folder**. A **JSON Schema** file
+is optional.
 
 - No schema? Load the config alone and click **Generate schema from config** to
   get an editable draft schema (types inferred, round-trip safe).
+- Browsers without File System Access API support fall back to downloading
+  `config.json` instead of writing in place.
 - **Load example** boots a demo (schema + config) to try the tool immediately.
 
 ### 3. Edit through generated controls
@@ -106,7 +96,7 @@ The form is generated from the schema, with type-appropriate widgets:
 - **Dotted path** (`.server.port`) is shown on every field so you always know
   where in the config you are.
 - **Unsaved-change prompt**: the Save button shows `Review & save… (N)` with the
-  number of pending changes, a footer note reminds you they are not exported yet,
+  number of pending changes, a footer note reminds you they are not saved yet,
   and closing the tab with unsaved changes triggers a browser confirm.
 
 ### 4. Adjust the schema (Schema tab)
@@ -119,13 +109,14 @@ JSON stays available behind a toggle.
 ### 5. Review & save
 
 **Review & save…** shows a **diff** (loaded baseline vs current) and the validity
-state before you export. Export downloads `config.json` (2-space indent). Export
-is allowed even when invalid — you are never blocked from saving your work.
+state before saving. Save writes back to `config.json` (2-space indent). Saving
+is allowed even when invalid — you are never blocked from preserving your work.
 
 ### 6. Session continuity
 
 The last schema + config is persisted to `localStorage` and auto-restored on the
-next visit. **Forget saved** clears it.
+next visit. When folder permission is available, save history is also written to
+`.jigtor/history.json`. **Forget saved** clears the browser restore data.
 
 ## Supported JSON Schema subset (V1)
 
@@ -141,14 +132,9 @@ ignores the reference instead of failing the whole config.
 
 These affect the "real deployment" story and are intentionally undecided:
 
-1. **Directory layout** — where config/schema/log live (e.g. a `.jigtor/`
-   folder next to the config), and the schema file-name convention
-   (`schema.json` vs `config.schema.json` vs a `$schema` field inside the config).
-2. **Save mechanism** — download-only (today) vs direct overwrite via the File
-   System Access API vs a Tauri native wrapper.
-3. **Log / history** — a single log file vs versioned history (e.g. gzipped
+1. **Log / history** — a single log file vs versioned history (e.g. gzipped
    snapshots) that can be restored.
-4. **Schema-external fields** — fields present in the config but absent from the
+2. **Schema-external fields** — fields present in the config but absent from the
    schema. Today the renderer keeps them via a read-only "unknown" placeholder;
    the policy (log to console + preserve vs ignore) is not yet finalized.
 

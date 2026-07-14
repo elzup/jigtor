@@ -8,35 +8,29 @@ V1 でまだ未確定の判断事項も併記します。
 ## 実装済みフロー(いま動くもの)
 
 ```
-アプリを開く ──▶ schema + config 読込 ──▶ 編集(ライブ検証) ──▶ diff 確認 ──▶ config.json 書き出し
+アプリを開く ──▶ project folder 選択 ──▶ 編集(ライブ検証) ──▶ diff 確認 ──▶ config.json 直接保存
                     │                        │                                     │
              (config だけ読んで          (未保存の変更を promote)          (localStorage に保存・
-              schema を推論も可)                                            次回自動復元)
+              schema を推論も可)                                            schema/履歴も保存)
 ```
 
-### 1. アプリを開く
+### 1. オンラインアプリを開く
 
-GitHub Release の配布ファイルをダウンロードして、そのままブラウザで開きます。
-Git / Node.js / npm / Python / サーバー起動は不要です。配布 zip の `index.html` は
-JS / CSS を内包した単一 HTML なので、`file://` で直接開けます。
+オンラインの jigtor を Chromium 系ブラウザ(Chrome / Edge など)で開きます。
+アプリは配信されますが、`config.json` の内容はサーバーへ送信しません。
 
-1. GitHub の **Releases** ページで最新リリースを開く
-2. **Assets** から `jigtor-vX.Y.Z.zip` をダウンロードする
-   - `Source code (zip)` / `Source code (tar.gz)` ではなく、`jigtor-...zip` を選ぶ
-3. ダウンロードした zip を展開する
-4. 展開したフォルダを編集対象プロジェクトの `.jigtor/` に置く
-5. `.jigtor/index.html` をダブルクリックする
-   - ブラウザを選びたい場合は、`index.html` を Chrome / Edge / Firefox / Safari に
-     ドラッグ&ドロップする
+1. jigtor の URL を開く
+2. **Open project folder** を押す
+3. `config.json` があるプロジェクトディレクトリを選ぶ
+4. ブラウザの権限確認で許可する
 
-静的 web アプリなので、バックエンドはありません。読み込んだ schema / config と編集内容は
-ブラウザ内だけで扱われ、外部サーバーへ送信されません。
+同じディレクトリに `schema.json` または `config.schema.json` があれば自動で読み込みます。
+無ければ `config.json` から schema を生成して編集できます。
 
 #### ディレクトリ構造の例
 
-たとえば `my-device/` の `config.json` を編集したい場合、導入前は jigtor 本体がまだ
-手元に無く、編集対象の `config.json` だけがあります。`config.schema.json` は
-持っていれば読み込めますが、最初から無くても構いません。
+たとえば `my-device/` の `config.json` を編集したい場合、最初は編集対象の
+`config.json` だけで構いません。
 
 **導入前のディレクトリ構造**
 
@@ -45,44 +39,37 @@ my-device/
 └── config.json
 ```
 
-GitHub Release から `jigtor-vX.Y.Z.zip` をダウンロードして展開し、フォルダ名を
-`.jigtor` にして `my-device/` の中へ置きます。jigtor 本体、任意の schema、
-バックアップなどを `.jigtor/` にまとめます。
+**Open project folder** で `my-device/` を選ぶと、jigtor が `config.json` を読みます。
+保存時は同じ `config.json` を直接上書きします。
 
 **導入後のディレクトリ構造**
 
 ```text
 my-device/
-├── config.json
-└── .jigtor/
-    ├── index.html        ← これをブラウザで開く
-    └── examples/
+└── config.json          ← jigtor が読み込む
 ```
 
-jigtor で `config.json` を読み込み、**Generate schema from config** で編集用 schema を
-生成してから編集します。既に `config.schema.json` がある場合は、それも一緒に読み込めます。
-編集後に **Review & save…** から保存すると、ブラウザが新しい `config.json` を
-ダウンロードします。必要なら元の `config.json` をバックアップしてから、ダウンロードした
-ファイルで置き換えます。
+編集後に **Review & save…** から保存すると、`config.json` が直接更新されます。
+schema を生成・調整した場合は `schema.json`、保存履歴は `.jigtor/history.json` として
+同じプロジェクト内に残せます。
 
 **編集後のディレクトリ構造**
 
 ```text
 my-device/
-├── config.json          ← 編集後の config に置き換える
+├── config.json          ← 直接更新される
+├── schema.json          ← 任意: 生成・調整した schema
 └── .jigtor/
-    ├── index.html
-    ├── config.before.json   ← 任意: 置き換え前のバックアップ
-    ├── config.schema.json   ← 任意: 生成・調整した schema を残す場合
-    └── examples/
+    └── history.json     ← 任意: 保存履歴
 ```
 
 ### 2. ファイルを読み込む
 
-**config** を file picker かドラッグ&ドロップで読み込む。**JSON Schema** は任意です。
+通常は **Open project folder** でディレクトリを選ぶ。**JSON Schema** は任意です。
 
 - schema が無い場合: config だけ読み込んで **Generate schema from config** を押すと、
   型を推論した下書きスキーマを生成(往復安全)。
+- File System Access API 非対応ブラウザでは、直接上書き保存はできず download fallback になります。
 - **Load example** でデモ(schema + config)を即起動して試せる。
 
 ### 3. 生成されたコントロールで編集
@@ -106,7 +93,7 @@ my-device/
 - **ドット記法パス**(`.server.port`)を全フィールドに表示。config のどこを
   編集しているか常に分かる。
 - **未保存の変更を促す**: Save ボタンに `Review & save… (N)`(保留件数)を表示し、
-  フッターに「まだ書き出していない」旨の注意、未保存のままタブを閉じるとブラウザの
+  フッターに「まだ保存していない」旨の注意、未保存のままタブを閉じるとブラウザの
   確認ダイアログが出る。
 
 ### 4. スキーマを調整(Schema タブ)
@@ -118,13 +105,14 @@ my-device/
 
 ### 5. 確認して保存
 
-**Review & save…** で書き出し前に **diff**(読み込み時の baseline と現在)と有効性を
-表示。エクスポートは `config.json`(2 スペース字下げ)をダウンロード。**無効な状態でも
-書き出し可能** — 作業を保存できずに詰まることはありません。
+**Review & save…** で保存前に **diff**(読み込み時の baseline と現在)と有効性を
+表示。保存は `config.json`(2 スペース字下げ)へ直接書き戻します。**無効な状態でも
+保存可能** — 作業を保存できずに詰まることはありません。
 
 ### 6. セッション継続
 
-直近の schema + config を `localStorage` に保存し、次回自動復元。**Forget saved** で消去。
+直近の schema + config を `localStorage` に保存し、次回自動復元。フォルダ権限がある場合は
+保存履歴を `.jigtor/history.json` にも残します。**Forget saved** でブラウザ内の復元情報を消去。
 
 ## 対応する JSON Schema サブセット(V1)
 
@@ -140,11 +128,9 @@ my-device/
 
 「実運用での配置」に関わる部分で、意図的に未決:
 
-1. **保存方式** — ダウンロードのみ(現状)/ File System Access API で直接上書き /
-   Tauri ネイティブラッパ。
-2. **ログ・履歴** — ログ 1 枚か、バージョン管理された履歴(gzip スナップショット等)で
+1. **ログ・履歴** — ログ 1 枚か、バージョン管理された履歴(gzip スナップショット等)で
    復元可能にするか。
-3. **schema 外フィールド** — config にあってスキーマに無いフィールド。現状は
+2. **schema 外フィールド** — config にあってスキーマに無いフィールド。現状は
    読み取り専用「unknown」プレースホルダで保持しているが、方針(console 出力 + 保持 /
    無視)は未確定。
 

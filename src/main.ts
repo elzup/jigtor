@@ -1,5 +1,5 @@
 // UI shell: loading, tabbed views (Edit | Schema), in-place live validation,
-// schema inference/adjustment, default seeding, diff-confirmed export.
+// schema inference/adjustment, default seeding, diff-confirmed save.
 // All schema/validate/render/infer/defaults/diff logic lives in ./core (tested).
 import './style.css'
 import { parseSchema } from './core/parseSchema'
@@ -35,6 +35,38 @@ type State = { schema: unknown | null; config: unknown; original: unknown }
 const state: State = { schema: null, config: {}, original: {} }
 
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
+
+type WritableFileStreamLike = {
+  write: (data: string) => Promise<void>
+  close: () => Promise<void>
+}
+type FileSystemFileHandleLike = {
+  name: string
+  getFile: () => Promise<File>
+  createWritable: () => Promise<WritableFileStreamLike>
+  queryPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
+  requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
+}
+type FileSystemDirectoryHandleLike = {
+  name: string
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FileSystemFileHandleLike>
+  getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<FileSystemDirectoryHandleLike>
+  queryPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
+  requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
+}
+type FilePickerWindow = Window & {
+  showOpenFilePicker?: (options?: {
+    multiple?: boolean
+    types?: Array<{ description: string; accept: Record<string, string[]> }>
+  }) => Promise<FileSystemFileHandleLike[]>
+  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandleLike>
+}
+
+let configFileHandle: FileSystemFileHandleLike | null = null
+let projectDirectoryHandle: FileSystemDirectoryHandleLike | null = null
+const filePickerWindow = window as FilePickerWindow
+const canUseFileSystemAccess = (): boolean =>
+  typeof filePickerWindow.showOpenFilePicker === 'function'
 
 // Root-anchored dotted path shared with the Edit form (REQ-R17): [] -> "." ,
 // ['a','b'] -> ".a.b". Replaces the old "(root)" placeholder everywhere.
@@ -98,11 +130,14 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = `
   <header>
     <h1>jigtor</h1>
-    <p>Load a schema + config, edit safely, review the diff, export.</p>
+    <p>Open config.json, edit safely, review the diff, save back to the same file.</p>
   </header>
   <section id="drop" class="drop">
-    <label class="filebtn">schema<input type="file" id="schema-input" accept=".json" hidden></label>
-    <label class="filebtn">config<input type="file" id="config-input" accept=".json" hidden></label>
+    <button id="open-project" class="filebtn" type="button">Open project folder</button>
+    <button id="open-config" class="filebtn" type="button">Open config.json</button>
+    <button id="open-schema" class="filebtn" type="button">Open schema</button>
+    <label class="filebtn">Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
+    <label class="filebtn">Import config<input type="file" id="config-input" accept=".json" hidden></label>
     <button id="infer-schema" class="filebtn" type="button">Generate schema from config</button>
     <button id="load-example" class="filebtn" type="button">Load example</button>
     <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
@@ -149,7 +184,7 @@ app.innerHTML = `
   </section>
 
   <section id="panel-history" class="panel" hidden>
-    <p class="hint">Saved changes, grouped by field. Each entry is one export; edits are only recorded once you save.</p>
+    <p class="hint">Saved changes, grouped by field. Edits are only recorded once you save.</p>
     <div id="history-host" class="history-host"></div>
   </section>
 `
@@ -166,8 +201,11 @@ const saveBtn = app.querySelector<HTMLButtonElement>('#save')!
 const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
 const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
+const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
+const openConfigBtn = app.querySelector<HTMLButtonElement>('#open-config')!
+const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
 
-// "Dirty" = the config has unexported changes since the last load/save. Derived
+// "Dirty" = the config has unsaved changes since the last load/save. Derived
 // from the same diff baseline used by the save dialog; drives the save prompt.
 let isDirty = false
 function updateDirty(): void {
@@ -176,7 +214,7 @@ function updateDirty(): void {
   saveBtn.textContent = isDirty ? `Review & save… (${count})` : 'Review & save…'
   saveBtn.classList.toggle('dirty', isDirty)
   dirtyNote.hidden = !isDirty
-  dirtyNote.textContent = isDirty ? `${count} unsaved change(s) — not exported yet` : ''
+  dirtyNote.textContent = isDirty ? `${count} unsaved change(s) — not saved yet` : ''
 }
 
 // Live, provisional JSON preview of the config as it is edited (user request:
@@ -214,7 +252,7 @@ function renderHistoryTab(): void {
   if (paths.length === 0) {
     const p = document.createElement('p')
     p.className = 'hint'
-    p.textContent = 'No saved changes yet. Edit a field and export to start the history.'
+    p.textContent = 'No saved changes yet. Edit a field and save to start the history.'
     historyHost.appendChild(p)
     return
   }
@@ -349,6 +387,11 @@ function loadConfig(value: unknown): void {
   buildForm()
 }
 
+function loadConfigFromHandle(value: unknown, handle: FileSystemFileHandleLike): void {
+  configFileHandle = handle
+  loadConfig(value)
+}
+
 function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): void {
   const parsed = parseJsonFile(text)
   if (!parsed.ok) {
@@ -359,7 +402,10 @@ function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): voi
   markNewData() // a file load is a fresh review session -> re-baseline the diff
   const kind = forceKind ?? classifyFile(name, parsed.value)
   if (kind === 'schema') loadSchema(parsed.value)
-  else loadConfig(parsed.value)
+  else {
+    configFileHandle = null
+    loadConfig(parsed.value)
+  }
 }
 
 // ---- structured schema editor (Schema tab) ----
@@ -546,6 +592,93 @@ app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
 })
 
 // ---- file inputs / drop ----
+async function openWithFileSystemAccess(kind: 'schema' | 'config'): Promise<void> {
+  if (!canUseFileSystemAccess()) {
+    status.textContent = 'Direct file save requires a Chromium-based browser with File System Access API support.'
+    status.className = 'status error'
+    return
+  }
+  const [handle] = await filePickerWindow.showOpenFilePicker!({
+    multiple: false,
+    types: [{ description: 'JSON files', accept: { 'application/json': ['.json'] } }],
+  })
+  if (!handle) return
+  const file = await handle.getFile()
+  const parsed = parseJsonFile(await file.text())
+  if (!parsed.ok) {
+    status.textContent = parsed.error
+    status.className = 'status error'
+    return
+  }
+  markNewData()
+  if (kind === 'schema') loadSchema(parsed.value)
+  else {
+    projectDirectoryHandle = null
+    loadConfigFromHandle(parsed.value, handle)
+  }
+}
+
+async function readJsonHandle(handle: FileSystemFileHandleLike): Promise<unknown> {
+  const file = await handle.getFile()
+  const parsed = parseJsonFile(await file.text())
+  if (!parsed.ok) throw new Error(parsed.error)
+  return parsed.value
+}
+
+async function readOptionalJsonFile(
+  dir: FileSystemDirectoryHandleLike,
+  names: readonly string[],
+): Promise<unknown | null> {
+  for (const name of names) {
+    try {
+      return await readJsonHandle(await dir.getFileHandle(name))
+    } catch {
+      /* try next conventional name */
+    }
+  }
+  return null
+}
+
+async function openProjectFolder(): Promise<void> {
+  if (typeof filePickerWindow.showDirectoryPicker !== 'function') {
+    status.textContent = 'Project-folder save requires a Chromium-based browser with directory access support.'
+    status.className = 'status error'
+    return
+  }
+  const dir = await filePickerWindow.showDirectoryPicker()
+  projectDirectoryHandle = dir
+  configFileHandle = await dir.getFileHandle('config.json')
+  const schema = await readOptionalJsonFile(dir, ['schema.json', 'config.schema.json'])
+  markNewData()
+  state.schema = schema
+  loadConfigFromHandle(await readJsonHandle(configFileHandle), configFileHandle)
+  if (schema === null) {
+    status.textContent = 'Loaded config.json. Generate a schema from config to start editing.'
+    status.className = 'status'
+  }
+}
+
+openProjectBtn.addEventListener('click', () => {
+  void openProjectFolder().catch((e) => {
+    projectDirectoryHandle = null
+    configFileHandle = null
+    status.textContent = `Could not open project folder: ${String(e)}`
+    status.className = 'status error'
+  })
+})
+openSchemaBtn.addEventListener('click', () => {
+  void openWithFileSystemAccess('schema').catch((e) => {
+    status.textContent = `Could not open schema: ${String(e)}`
+    status.className = 'status error'
+  })
+})
+openConfigBtn.addEventListener('click', () => {
+  void openWithFileSystemAccess('config').catch((e) => {
+    status.textContent = `Could not open config: ${String(e)}`
+    status.className = 'status error'
+  })
+})
+
 app.querySelector<HTMLInputElement>('#schema-input')!.addEventListener('change', (e) => {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) void f.text().then((t) => loadText(t, 'schema', f.name))
@@ -605,7 +738,7 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
   buildForm()
 })
 
-// ---- save: review diff, then export (allowed even when invalid) ----
+// ---- save: review diff, then write config.json (allowed even when invalid) ----
 function renderChange(c: Change): HTMLElement {
   const row = document.createElement('li')
   row.className = `change change-${c.kind}`
@@ -624,6 +757,58 @@ function download(): void {
   a.download = 'config.json'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+async function ensureWritablePermission(handle: FileSystemFileHandleLike): Promise<boolean> {
+  const options = { mode: 'readwrite' as const }
+  if ((await handle.queryPermission?.(options)) === 'granted') return true
+  if ((await handle.requestPermission?.(options)) === 'granted') return true
+  return handle.queryPermission === undefined && handle.requestPermission === undefined
+}
+
+async function writeFileHandle(handle: FileSystemFileHandleLike, text: string): Promise<void> {
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+
+async function writeProjectMetadata(): Promise<void> {
+  if (projectDirectoryHandle === null) return
+  if (state.schema !== null) {
+    await writeFileHandle(
+      await projectDirectoryHandle.getFileHandle('schema.json', { create: true }),
+      serializeConfig(state.schema),
+    )
+  }
+  const jigtorDir = await projectDirectoryHandle.getDirectoryHandle('.jigtor', { create: true })
+  await writeFileHandle(
+    await jigtorDir.getFileHandle('history.json', { create: true }),
+    serializeConfig(history),
+  )
+}
+
+async function saveConfig(): Promise<'direct' | 'download'> {
+  if (configFileHandle !== null && canUseFileSystemAccess()) {
+    if (!(await ensureWritablePermission(configFileHandle))) {
+      throw new Error('write permission was not granted')
+    }
+    await writeFileHandle(configFileHandle, serializeConfig(state.config))
+    return 'direct'
+  }
+  download()
+  return 'download'
+}
+
+function markSaved(): void {
+  // spec:history (REQ-H01): record this save's per-field changes before the
+  // baseline moves, then advance the baseline.
+  history = recordSave(history, state.original, state.config, Date.now())
+  persistHistory()
+  renderHistoryTab()
+  state.original = clone(state.config) // new baseline after a save
+  saveDialog.hidden = true
+  updateDirty()
+  revalidate() // clear per-field dirty decoration now that everything is saved
 }
 
 app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
@@ -659,18 +844,19 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
   actions.className = 'schema-actions'
   const dl = document.createElement('button')
   dl.type = 'button'
-  dl.textContent = 'Download config.json'
+  dl.textContent = configFileHandle ? `Save ${configFileHandle.name}` : 'Download config.json'
   dl.addEventListener('click', () => {
-    download()
-    // spec:history (REQ-H01): record this save's per-field changes before the
-    // baseline moves, then advance the baseline.
-    history = recordSave(history, state.original, state.config, Date.now())
-    persistHistory()
-    renderHistoryTab()
-    state.original = clone(state.config) // new baseline after a save
-    saveDialog.hidden = true
-    updateDirty()
-    revalidate() // clear per-field dirty decoration now that everything is saved
+    void saveConfig()
+      .then(async (mode) => {
+        markSaved()
+        await writeProjectMetadata()
+        status.textContent = mode === 'direct' ? 'Saved config.json.' : 'Downloaded config.json.'
+        status.className = 'status ok'
+      })
+      .catch((e) => {
+        status.textContent = `Could not save config.json: ${String(e)}`
+        status.className = 'status error'
+      })
   })
   const cancel = document.createElement('button')
   cancel.type = 'button'
@@ -696,7 +882,7 @@ forgetBtn.addEventListener('click', () => {
   status.textContent = 'Cleared saved session.'
 })
 
-// Prompt before leaving with unexported changes.
+// Prompt before leaving with unsaved changes.
 window.addEventListener('beforeunload', (e) => {
   if (isDirty) {
     e.preventDefault()
