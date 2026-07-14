@@ -65,12 +65,13 @@ describe('spec:renderer', () => {
     expect(el.querySelector('input[type="radio"][data-path="n"]')).toBeNull()
   })
 
-  test('REQ-R02: number -> number input; integer gets step=1', () => {
+  test('REQ-R02/R19: number/integer -> number input, with no native step/min/max', () => {
     const { el } = build(schema, {})
     const nums = el.querySelectorAll('input[type="number"]')
     expect(nums.length).toBe(2)
-    const intInput = Array.from(nums).find((n) => n.getAttribute('data-path') === 'max')
-    expect(intInput!.getAttribute('step')).toBe('1')
+    const intInput = Array.from(nums).find((n) => n.getAttribute('data-path') === 'max')!
+    // REQ-R19: integers no longer carry step=1 — input is unconstrained, ajv warns
+    expect(intInput.hasAttribute('step')).toBe(false)
   })
 
   test('REQ-R03: boolean -> checkbox', () => {
@@ -286,21 +287,19 @@ describe('spec:renderer', () => {
     expect(keyLabel.querySelector('code.field-path')?.textContent).toBe('.key')
   })
 
-  test('REQ-R18: field-meta shows live value; dirty field gets before-value + reset', () => {
+  test('REQ-R18: field-meta shows a live "key": value line; dirty field shows the before→after transition + reset', () => {
     const { el } = build(schema, { key: 'now', max: 3 })
-    // baseline differs at .key (was 'orig') and .max (was 1); .max unchanged in `current`? make key dirty
     refreshFieldMeta(el, { key: 'orig', max: 3 }, { key: 'now', max: 3 }, () => {})
     const keyMeta = el.querySelector('.field-meta[data-metapath="[\\"key\\"]"]') as HTMLElement
-    // live value chip always present
-    expect(keyMeta.querySelector('.fv')?.textContent).toBe('= "now"')
-    // dirty: before value + reset button, and the .field is marked
-    expect(keyMeta.querySelector('.fv-was')?.textContent).toBe('was "orig"')
+    // changed: before line (struck) + "→ after" line, and the .field is marked
+    expect(keyMeta.querySelector('.fv-before')?.textContent).toBe('"key": "orig"')
+    expect(keyMeta.querySelector('.fv-after')?.textContent).toBe('→ "key": "now"')
     expect(keyMeta.querySelector('.fv-reset')).toBeTruthy()
     expect(keyMeta.closest('.field')!.classList.contains('field-dirty')).toBe(true)
-    // unchanged field: value chip only, no dirty decoration
+    // unchanged field: single live "key": value line, no dirty decoration
     const maxMeta = el.querySelector('.field-meta[data-metapath="[\\"max\\"]"]') as HTMLElement
-    expect(maxMeta.querySelector('.fv')?.textContent).toBe('= 3')
-    expect(maxMeta.querySelector('.fv-was')).toBeNull()
+    expect(maxMeta.querySelector('.fv')?.textContent).toBe('"max": 3')
+    expect(maxMeta.querySelector('.fv-before')).toBeNull()
     expect(maxMeta.closest('.field')!.classList.contains('field-dirty')).toBe(false)
   })
 
@@ -319,8 +318,35 @@ describe('spec:renderer', () => {
     // now everything matches baseline -> dirty must clear
     refreshFieldMeta(el, { key: 'now' }, { key: 'now' }, () => {})
     const keyMeta = el.querySelector('.field-meta[data-metapath="[\\"key\\"]"]') as HTMLElement
-    expect(keyMeta.querySelector('.fv-was')).toBeNull()
+    expect(keyMeta.querySelector('.fv-before')).toBeNull()
+    expect(keyMeta.querySelector('.fv-after')).toBeNull()
     expect(keyMeta.closest('.field')!.classList.contains('field-dirty')).toBe(false)
+  })
+
+  test('REQ-R19: inputs carry no native constraint attributes (validation is ajv-only)', () => {
+    const constrained = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', maxLength: 5, pattern: '^[a-z]+$' },
+        bio: { type: 'string', maxLength: 120 }, // -> textarea
+        count: { type: 'integer', minimum: 1, maximum: 10 }, // -> slider pair
+        loose: { type: 'number' }, // -> plain number
+      },
+    }
+    const { el } = build(constrained, {})
+    const name = el.querySelector('input[type="text"][data-path="name"]') as HTMLInputElement
+    expect(name.hasAttribute('maxlength')).toBe(false)
+    expect(name.hasAttribute('pattern')).toBe(false)
+    const bio = el.querySelector('textarea[data-path="bio"]') as HTMLTextAreaElement
+    expect(bio.hasAttribute('maxlength')).toBe(false)
+    // slider's paired number input is unconstrained; the range keeps its bounds
+    const num = el.querySelector('input[type="number"][data-path="count"]') as HTMLInputElement
+    expect(num.hasAttribute('min')).toBe(false)
+    expect(num.hasAttribute('max')).toBe(false)
+    expect(num.hasAttribute('step')).toBe(false)
+    const loose = el.querySelector('input[type="number"][data-path="loose"]') as HTMLInputElement
+    expect(loose.hasAttribute('min')).toBe(false)
+    expect(loose.hasAttribute('step')).toBe(false)
   })
 
   test('REQ-R08 (FIND-R3-002): unknown placeholder still shows author description', () => {

@@ -205,21 +205,28 @@ legend {
   font-size: 0.85rem;
   margin: 0;
 }
-/* REQ-R18: per-field meta row — live value + (when changed) previous value + reset. */
+/* REQ-R18: per-field meta — a live "key": value line; when changed, the
+   before line and a "→ key: after" line show the edit directly. */
 .field-meta {
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  font: 0.78rem/1.4 ui-monospace, monospace;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  font: 0.78rem/1.5 ui-monospace, monospace;
 }
 .field-meta .fv {
   color: var(--muted);
 }
-.field-meta .fv-was {
+.field-meta .fv-before {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.field-meta .fv-after {
   color: var(--warn);
+  font-weight: 600;
 }
 .field-meta .fv-reset {
+  margin-top: 0.15rem;
   padding: 0.05rem 0.5rem;
   font-size: 0.72rem;
   border-radius: 999px;

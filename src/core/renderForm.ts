@@ -148,9 +148,9 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
     range.step = step
     const num = document.createElement('input')
     num.type = 'number'
-    num.min = String(field.minimum)
-    num.max = String(field.maximum)
-    num.step = step
+    // REQ-R19: the paired number input is unconstrained (no min/max/step) so any
+    // value can be typed freely; the range is just a coarse in-bounds helper and
+    // schema violations surface as ajv warnings, not input blocking.
     if (typeof current === 'number') {
       range.value = String(current)
       num.value = String(current)
@@ -197,7 +197,7 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
   // REQ-R12: long string (no enum) -> textarea.
   if (field.kind === 'string' && !field.enum && (field.maxLength ?? 0) >= LONG_STRING_THRESHOLD) {
     const ta = document.createElement('textarea')
-    if (field.maxLength !== undefined) ta.maxLength = field.maxLength
+    // REQ-R19: no maxLength cap — type freely, ajv warns if too long.
     if (typeof current === 'string') ta.value = current
     ta.addEventListener('input', () => onChange(field.path, ta.value))
     ta.setAttribute('data-path', pathKey(field.path))
@@ -228,9 +228,8 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
   } else if (field.kind === 'number') {
     const input = document.createElement('input')
     input.type = 'number'
-    if (field.integer) input.step = '1'
-    if (field.minimum !== undefined) input.min = String(field.minimum)
-    if (field.maximum !== undefined) input.max = String(field.maximum)
+    // REQ-R19: no min/max/step — free numeric entry; ajv reports out-of-range
+    // or non-integer as a warning instead of blocking input.
     if (typeof current === 'number') input.value = String(current)
     input.addEventListener('input', () => {
       onChange(field.path, input.value === '' ? undefined : Number(input.value))
@@ -240,10 +239,8 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
     // string without enum
     const input = document.createElement('input')
     input.type = 'text'
-    if (field.kind === 'string') {
-      if (field.pattern) input.pattern = field.pattern
-      if (field.maxLength !== undefined) input.maxLength = field.maxLength
-    }
+    // REQ-R19: no native pattern/maxLength — type freely; ajv surfaces pattern
+    // or length violations as warnings rather than blocking input.
     if (typeof current === 'string') input.value = current
     input.addEventListener('input', () => onChange(field.path, input.value))
     control = input
@@ -311,23 +308,32 @@ export function refreshFieldMeta(
     const path = JSON.parse(raw) as FieldPath
     const cur = getAt(current, path)
     const base = getAt(baseline, path)
+    const key = JSON.stringify(String(path.at(-1) ?? '')) // "enabled"
+    const pair = (v: unknown): string => `${key}: ${fmtJson(v)}` // "enabled": false
 
-    const val = document.createElement('span')
-    val.className = 'fv'
-    val.textContent = `= ${fmtJson(cur)}`
-    box.appendChild(val)
+    // Unchanged: a single live "key": value line (per-field live preview).
+    if (sameJson(cur, base)) {
+      const val = document.createElement('span')
+      val.className = 'fv'
+      val.textContent = pair(cur)
+      box.appendChild(val)
+      return
+    }
 
-    if (sameJson(cur, base)) return
+    // Changed: show the transition directly —  "enabled": true  →  "enabled": false
     box.closest('.field')?.classList.add('field-dirty')
-    const was = document.createElement('span')
-    was.className = 'fv-was'
-    was.textContent = `was ${fmtJson(base)}`
+    const before = document.createElement('span')
+    before.className = 'fv fv-before'
+    before.textContent = pair(base)
+    const after = document.createElement('span')
+    after.className = 'fv fv-after'
+    after.textContent = `→ ${pair(cur)}`
     const reset = document.createElement('button')
     reset.type = 'button'
     reset.className = 'fv-reset'
     reset.textContent = 'reset'
     reset.addEventListener('click', () => onReset(path))
-    box.append(was, reset)
+    box.append(before, after, reset)
   })
 }
 

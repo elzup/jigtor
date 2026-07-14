@@ -69,12 +69,23 @@ coherence:
 - REQ-R18: THE SYSTEM SHALL 各 leaf フィールドに位置固定の meta 行 (`.field-meta`) を
   持たせ、`refreshFieldMeta(form, baseline, current, onReset)` で**入力を再生成せず**
   中身だけ差し替える (REQ-R16 と同じ契約)。
-  - THE SYSTEM SHALL 常に現在値を `= <json>` として表示する (フィールドごとのライブ値)。
+  - THE SYSTEM SHALL 未変更時は現在値を `"key": <json>` の 1 行で表示する
+    (フィールドごとのライブ値プレビュー)。
   - WHERE そのフィールドの現在値が baseline (最後に保存した値) と異なる
-    THE SYSTEM SHALL 親 `.field` に `.field-dirty` を付与し、`was <前の値>` と reset
-    ボタンを表示する。reset ボタン押下で `onReset(path)` を呼ぶ。
+    THE SYSTEM SHALL 親 `.field` に `.field-dirty` を付与し、変化を**そのまま**
+    `"key": <前>` → `→ "key": <後>` の 2 行で表示し、reset ボタンを添える。
+    reset ボタン押下で `onReset(path)` を呼ぶ (「was」等の語や `= 値` 表記は使わない)。
   - path 同定は errbox と同じく `JSON.stringify(path)` (`['a']` と `['a','b']` を混同しない)。
   - RATIONALE: 変更フィールドの視認・変更前値の確認・ワンクリック復元 (ユーザー要望)。
+
+- REQ-R19: THE SYSTEM SHALL text / number / textarea 入力に**ネイティブの入力制限属性**
+  (`maxLength` / `pattern` / `min` / `max` / `step`) を**付けない**。
+  THE SYSTEM SHALL 制約違反は入力をブロックせず、`validateConfig` (ajv) の警告として
+  `.field-errbox` に出す。
+  - slider (REQ-R11) の `range` は widget の性質上 min/max/step を保持するが、対の
+    number 入力は無制約とし、任意値を自由に打てる経路を常に残す。
+  - RATIONALE: 「入力中に制限はしない。validation error は警告で示す」方針 (ユーザー要望)。
+    スキーマは検証の単一の源であり、DOM 側の重複制約が編集を妨げないようにする。
 - REQ-R17: THE SYSTEM SHALL すべてのフィールド (leaf / object 問わず) のラベルに、
   そのフィールドの **ドット記法パス** を `<code class="field-path">` として付記する。
   - パスは root-anchored: `['server','port']` は `".server.port"`。
