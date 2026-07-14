@@ -12,9 +12,9 @@ easy to run in restricted environments.
 ## Use
 
 From GitHub Releases, download the `jigtor-vX.Y.Z.zip` asset, not the source
-code archive. Unzip it and serve the folder as static files. `file://` direct
-open is not supported; no backend is required, and loaded files and edits stay
-in the browser.
+code archive. Unzip it into the target project as `.jigtor/`, then open
+`.jigtor/index.html` in your browser. No install, Python, or server is required;
+loaded files and edits stay in the browser.
 
 ## Features (V1)
 

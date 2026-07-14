@@ -16,20 +16,18 @@ open app ──▶ load schema + config ──▶ edit (live validation) ──�
 
 ### 1. Open the app
 
-Download the packaged release asset and serve it as static files. No backend is
-required, but opening `index.html` directly through `file://` is not supported.
-The release zip is a packaged `dist/` build and can be placed on any static host
-or local static file server.
+Download the packaged release asset and open it directly in your browser. You do
+not need Git, Node.js, npm, Python, or a local server. The release `index.html`
+is a single HTML file with JS / CSS embedded, so it can be opened through
+`file://`.
 
 1. Open the latest version on the GitHub **Releases** page.
 2. Under **Assets**, download `jigtor-vX.Y.Z.zip`.
    - Choose `jigtor-...zip`, not `Source code (zip)` or `Source code (tar.gz)`.
 3. Unzip the downloaded file.
-4. Serve the extracted folder as static files.
-   - Examples: GitHub Pages, Cloudflare Pages, S3 static website, nginx, or an
-     internal file server.
-   - For a local check, run `python3 -m http.server 8000` in the extracted folder
-     and open `http://localhost:8000/`.
+4. Put the extracted folder in the target project as `.jigtor/`.
+5. Double-click `.jigtor/index.html`.
+   - To choose a browser, drag `index.html` into Chrome, Edge, Firefox, or Safari.
 
 This is a static web app with no backend. Loaded schema / config files and edits
 stay inside the browser and are not sent to an external server.
@@ -47,17 +45,17 @@ my-device/
 └── config.json
 ```
 
-After downloading `jigtor-vX.Y.Z.zip` from GitHub Releases and unzipping it, you
-have a jigtor app folder. You can put it inside `my-device/` or anywhere else.
+After downloading `jigtor-vX.Y.Z.zip` from GitHub Releases and unzipping it,
+rename the folder to `.jigtor` and place it inside `my-device/`. Keep the jigtor
+app, optional schema, and backups together under `.jigtor/`.
 
 **After installing**
 
 ```text
 my-device/
 ├── config.json
-└── jigtor-vX.Y.Z/
-    ├── index.html        ← open through a static server
-    ├── assets/
+└── .jigtor/
+    ├── index.html        ← open this in your browser
     └── examples/
 ```
 
@@ -71,11 +69,10 @@ the old file as a backup and replace it with the downloaded one.
 ```text
 my-device/
 ├── config.json          ← replace with the edited config
-├── config.before.json   ← optional backup of the old config
-├── config.schema.json   ← optional, if you keep the generated/adjusted schema
-└── jigtor-vX.Y.Z/
+└── .jigtor/
     ├── index.html
-    ├── assets/
+    ├── config.before.json   ← optional backup of the old config
+    ├── config.schema.json   ← optional, if you keep the generated/adjusted schema
     └── examples/
 ```
 

@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "portless run --name jigtor vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node tools/inline-dist.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
