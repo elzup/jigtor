@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'vitest'
-import { recordSave, fieldHistory, historyPaths, type SaveHistory } from '../src/core/history'
+import {
+  recordSave,
+  fieldHistory,
+  historyPaths,
+  parseHistory,
+  type SaveHistory,
+} from '../src/core/history'
 
 describe('spec:history', () => {
   test('REQ-H01/H03: a save appends one stamped entry per changed field', () => {
@@ -52,5 +58,16 @@ describe('spec:history', () => {
     h = recordSave(h, { z: 1, a: 2 }, { z: 9, a: 2, m: 3 }, 2) // z changed, m added
     const ids = historyPaths(h).map((p) => p.join('.'))
     expect(ids).toEqual(['a', 'z', 'm'])
+  })
+
+  test('REQ-H07: parseHistory round-trips valid data and never throws on corrupt/absent', () => {
+    const h = recordSave([], {}, { a: 1 }, 5)
+    // round-trip through JSON like localStorage would
+    expect(parseHistory(JSON.stringify(h))).toEqual(h)
+    // absent, corrupt JSON, and non-array all degrade to [] without throwing
+    expect(parseHistory(null)).toEqual([])
+    expect(parseHistory('{ not json')).toEqual([])
+    expect(parseHistory('42')).toEqual([])
+    expect(parseHistory('{"a":1}')).toEqual([])
   })
 })

@@ -34,13 +34,13 @@ stay inside the browser and are not sent to an external server.
 #### Directory layout example
 
 For example, if you want to edit `config.json` in `my-device/`, before installing
-jigtor you only have the files you want to edit.
+jigtor you only have the target `config.json`. A `config.schema.json` file can be
+loaded if you already have one, but it is not required at the start.
 
 **Before installing**
 
 ```text
 my-device/
-├── config.schema.json
 └── config.json
 ```
 
@@ -51,7 +51,6 @@ have a jigtor app folder. You can put it inside `my-device/` or anywhere else.
 
 ```text
 my-device/
-├── config.schema.json
 ├── config.json
 └── jigtor-vX.Y.Z/
     ├── index.html        ← open this in your browser
@@ -59,17 +58,18 @@ my-device/
     └── examples/
 ```
 
-Load `config.schema.json` and `config.json` in jigtor. After editing, use
-**Review & save…** to download a new `config.json`. If needed, keep the old file
-as a backup and replace it with the downloaded one.
+Load `config.json` in jigtor, then click **Generate schema from config** to create
+an editable schema. If you already have `config.schema.json`, load it too. After
+editing, use **Review & save…** to download a new `config.json`. If needed, keep
+the old file as a backup and replace it with the downloaded one.
 
 **After editing**
 
 ```text
 my-device/
-├── config.schema.json
 ├── config.json          ← replace with the edited config
 ├── config.before.json   ← optional backup of the old config
+├── config.schema.json   ← optional, if you keep the generated/adjusted schema
 └── jigtor-vX.Y.Z/
     ├── index.html
     ├── assets/
@@ -78,7 +78,8 @@ my-device/
 
 ### 2. Load your files
 
-Load a **JSON Schema** and a **config** file via file picker or drag-and-drop.
+Load a **config** file via file picker or drag-and-drop. A **JSON Schema** file is
+optional.
 
 - No schema? Load the config alone and click **Generate schema from config** to
   get an editable draft schema (types inferred, round-trip safe).

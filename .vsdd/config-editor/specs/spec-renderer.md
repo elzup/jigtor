@@ -17,7 +17,10 @@ coherence:
 - REQ-R01: WHEN `kind: 'string'` かつ `enum` あり
   THE SYSTEM SHALL enum を選択 UI で描画する (詳細は REQ-R15)。enum 無しなら `<input type=text>`。
 - REQ-R02: WHEN `kind: 'number'`
-  THE SYSTEM SHALL `<input type=number>` を描画し、`integer` なら `step=1` を設定する。
+  THE SYSTEM SHALL `<input type=number>` を描画する。
+  NOTE: **REQ-R19 が supersede** — 単体 number 入力には `step`/`min`/`max` を付けない
+  (自由入力・ajv 警告)。`integer` の `step=1` が残るのは REQ-R11 の slider の `range`
+  widget のみ (range は bound が必須なため R19 で明示的に除外)。
 - REQ-R03: WHEN `kind: 'boolean'`
   THE SYSTEM SHALL `<input type=checkbox>` を描画する。
 - REQ-R04: WHEN `kind: 'object'`

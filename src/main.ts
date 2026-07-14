@@ -13,6 +13,7 @@ import {
   recordSave,
   fieldHistory,
   historyPaths,
+  parseHistory,
   type SaveHistory,
   type FieldHistoryEntry,
 } from './core/history'
@@ -65,11 +66,9 @@ const HISTORY_KEY = 'jigtor:history'
 let history: SaveHistory = loadHistory()
 function loadHistory(): SaveHistory {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? (parsed as SaveHistory) : []
+    return parseHistory(localStorage.getItem(HISTORY_KEY)) // REQ-H07: never throws
   } catch {
-    return [] // corrupt storage -> empty history, never throw (REQ-H07)
+    return [] // localStorage access itself denied -> empty history
   }
 }
 function persistHistory(): void {
@@ -327,6 +326,13 @@ function buildForm(): void {
   if (!baselineEstablished) {
     state.original = clone(state.config)
     baselineEstablished = true
+  } else {
+    // In-session schema apply/infer may seed NEW defaulted fields. applyDefaults
+    // only fills missing keys, so seeding the same defaults into the baseline
+    // folds those machine values in WITHOUT touching user edits — otherwise a
+    // schema-added defaulted field would read as a permanent change and its
+    // reset button would be a dead no-op (FIND-A1: deleteAt then re-seed loop).
+    state.original = applyDefaults(parsed.root as FieldNode, state.original)
   }
   persist()
   forgetBtn.hidden = false // a session now exists to recall/forget

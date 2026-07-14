@@ -406,6 +406,32 @@ describe('spec:renderer', () => {
       ta.dispatchEvent(new Event('input', { bubbles: true }))
       expect(changes).toHaveLength(before)
     })
+
+    test('FIND-A4: JSON that parses to a non-array is rejected, not committed', () => {
+      const { el, changes } = build(listSchema, { rules: [{ p: 'x' }] })
+      const ta = el.querySelector('textarea.array-json[data-path="rules"]') as HTMLTextAreaElement
+      const before = changes.length
+      for (const bad of ['42', '"x"', '{"a":1}']) {
+        ta.value = bad
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      expect(changes).toHaveLength(before) // nothing committed
+      expect(ta.parentElement!.querySelector('.field-error')!.textContent).toContain('array')
+    })
+
+    test('FIND-A2: clearing a number item emits 0, never undefined/null into the array', () => {
+      const numSchema = {
+        type: 'object',
+        properties: { nums: { type: 'array', items: { type: 'number' } } },
+      }
+      const { el, changes } = build(numSchema, { nums: [1, 2, 3] })
+      const input = el.querySelectorAll('.array-row input[type="number"]')[1] as HTMLInputElement
+      input.value = ''
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(changes.at(-1)).toEqual({ path: ['nums'], value: [1, 0, 3] })
+      // and it survives JSON serialization with no null hole
+      expect(JSON.stringify(changes.at(-1)!.value)).toBe('[1,0,3]')
+    })
   })
 
   test('REQ-R08 (FIND-R3-002): unknown placeholder still shows author description', () => {

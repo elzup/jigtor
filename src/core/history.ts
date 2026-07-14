@@ -45,6 +45,18 @@ export function fieldHistory(history: SaveHistory, path: FieldPath): FieldHistor
   return history.filter((e) => pathId(e.path) === id)
 }
 
+// REQ-H07: parse persisted history text defensively. Null (absent), invalid
+// JSON, or a non-array all yield an empty history — never throws.
+export function parseHistory(raw: string | null): SaveHistory {
+  if (raw === null) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as SaveHistory) : []
+  } catch {
+    return []
+  }
+}
+
 // Distinct field paths that have any history, in first-seen order.
 export function historyPaths(history: SaveHistory): FieldPath[] {
   const seen = new Set<string>()

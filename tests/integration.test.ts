@@ -102,6 +102,28 @@ describe('integration: example config + schema', () => {
     ])
   })
 
+  test('FIND-A1: seeding defaults into baseline too keeps a schema-added defaulted field non-dirty (reset works)', () => {
+    // Simulates an in-session schema apply that ADDS a defaulted field: buildForm
+    // seeds the default into BOTH config and the (already-established) baseline.
+    const withNew = {
+      type: 'object',
+      properties: { name: { type: 'string' }, retries: { type: 'integer', default: 3 } },
+    }
+    const parsed = parseSchema(withNew)
+    if (!parsed.ok) throw new Error('bad')
+    let config: unknown = applyDefaults(parsed.root, { name: 'app' }) // { name, retries:3 }
+    let baseline: unknown = applyDefaults(parsed.root, { name: 'app' }) // main.ts else-branch
+    // the machine-seeded default is NOT a change, so no dead reset button
+    expect(diffConfig(baseline, config)).toEqual([])
+    // user edits it -> dirty; resetting to the baseline value clears it (not undefined)
+    config = { ...(config as object), retries: 9 }
+    expect(diffConfig(baseline, config)).toHaveLength(1)
+    const base = (baseline as Record<string, unknown>)['retries']
+    expect(base).toBe(3) // reset target is defined, so resetField uses setAt, not deleteAt+reseed
+    config = { ...(config as object), retries: base }
+    expect(diffConfig(baseline, config)).toEqual([])
+  })
+
   test('a constraint violation is caught and surfaced on the right field', () => {
     const broken = setAt(config, ['max'], 999) // exceeds maximum:100
     const result = validateConfig(schema, broken)

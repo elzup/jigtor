@@ -104,7 +104,9 @@ function primitiveItemInput(
     const n = document.createElement('input')
     n.type = 'number'
     if (typeof value === 'number') n.value = String(value)
-    n.addEventListener('input', () => onInput(n.value === '' ? undefined : Number(n.value)))
+    // FIND-A2: never emit undefined into the array (it serializes to a stray
+    // null). Number('') is 0, a valid list element consistent with itemDefault.
+    n.addEventListener('input', () => onInput(Number(n.value)))
     return n
   }
   if (item.kind === 'string' && item.enum) {
@@ -212,14 +214,22 @@ function jsonArrayEditor(
   note.className = 'field-error'
   note.hidden = true
   ta.addEventListener('input', () => {
+    let parsed: unknown
     try {
-      const parsed = JSON.parse(ta.value)
-      note.hidden = true
-      onChange(field.path, parsed)
+      parsed = JSON.parse(ta.value)
     } catch {
       note.hidden = false
       note.textContent = 'invalid JSON — fix to apply'
+      return
     }
+    // FIND-A4: this is an array field — don't silently commit a scalar/object.
+    if (!Array.isArray(parsed)) {
+      note.hidden = false
+      note.textContent = 'must be a JSON array — fix to apply'
+      return
+    }
+    note.hidden = true
+    onChange(field.path, parsed)
   })
   box.append(ta, note)
   return box
