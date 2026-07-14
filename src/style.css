@@ -265,6 +265,51 @@ legend {
   opacity: 0.75;
 }
 
+/* REQ-R20: array (list) editor */
+.array-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.array-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.array-row > input[type='text'],
+.array-row > input[type='number'],
+.array-row > select {
+  flex: 1;
+}
+.array-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+.array-btn.array-rm {
+  color: var(--err);
+  border-color: var(--border);
+}
+.array-btn.array-rm:hover:not(:disabled) {
+  border-color: var(--err);
+}
+.array-add {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  border-style: dashed;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.array-json {
+  width: 100%;
+  min-height: 4rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  resize: vertical;
+}
+
 /* ---- radios / slider / toggle ---- */
 .field-radios {
   display: flex;

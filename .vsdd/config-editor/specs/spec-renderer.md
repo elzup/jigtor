@@ -78,6 +78,20 @@ coherence:
   - path 同定は errbox と同じく `JSON.stringify(path)` (`['a']` と `['a','b']` を混同しない)。
   - RATIONALE: 変更フィールドの視認・変更前値の確認・ワンクリック復元 (ユーザー要望)。
 
+- REQ-R20: WHEN `kind: 'array'`
+  THE SYSTEM SHALL 配列を**編集可能**にする (V1 の読み取り専用を置き換え)。
+  - IF item 型が primitive (`string` / `number` / `boolean`)
+    THEN THE SYSTEM SHALL per-item の入力行を出し、各行に item 型に応じた入力 +
+    上移動 / 下移動 / 削除ボタンを、末尾に「+ add item」を置く。
+    THE SYSTEM SHALL 要素値の編集では行を再描画せず配列だけ更新し (REQ-R16: caret 維持)、
+    追加 / 削除 / 並べ替えのときだけ行を再描画する。
+    追加時のデフォルトは string→`""`、number→`0`、boolean→`false`、enum→先頭候補。
+  - IF item 型が object など複雑
+    THEN THE SYSTEM SHALL 配列全体を JSON textarea で編集させ、**パースできた時だけ**
+    `onChange(path, parsed)` する。パース不能時はインライン注記を出し確定しない。
+  - 入力は REQ-R19 に従いネイティブ制約を付けず、検証は ajv 警告に委ねる。
+  - RATIONALE: `.tags` のような配列を実際に編集したい (ユーザー要望)。オブジェクト配列は
+    サブフォーム化を V2 に残し、まず JSON で確実に編集できる経路を用意する。
 - REQ-R19: THE SYSTEM SHALL text / number / textarea 入力に**ネイティブの入力制限属性**
   (`maxLength` / `pattern` / `min` / `max` / `step`) を**付けない**。
   THE SYSTEM SHALL 制約違反は入力をブロックせず、`validateConfig` (ajv) の警告として

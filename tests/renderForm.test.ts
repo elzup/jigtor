@@ -349,6 +349,65 @@ describe('spec:renderer', () => {
     expect(loose.hasAttribute('step')).toBe(false)
   })
 
+  describe('REQ-R20: array (list) editing', () => {
+    const listSchema = {
+      type: 'object',
+      properties: {
+        tags: { type: 'array', items: { type: 'string' } },
+        rules: { type: 'array', items: { type: 'object', properties: { p: { type: 'string' } } } },
+      },
+    }
+
+    test('primitive item array -> one input row per item + add control', () => {
+      const { el } = build(listSchema, { tags: ['a', 'b'] })
+      const editor = el.querySelector('.field-array-editor[data-path="tags"]')!
+      const rows = editor.querySelectorAll('.array-row')
+      expect(rows).toHaveLength(2)
+      expect((rows[0]!.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('a')
+      expect(editor.querySelector('.array-add')).toBeTruthy()
+    })
+
+    test('editing an item value fires onChange with the whole updated array (no row rebuild)', () => {
+      const { el, changes } = build(listSchema, { tags: ['a', 'b'] })
+      const input = el.querySelector('.array-row input[type="text"]') as HTMLInputElement
+      input.value = 'z'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(changes).toContainEqual({ path: ['tags'], value: ['z', 'b'] })
+    })
+
+    test('add appends a typed default; remove drops the item; both emit', () => {
+      const { el, changes } = build(listSchema, { tags: ['a'] })
+      ;(el.querySelector('.array-add') as HTMLButtonElement).click()
+      expect(changes.at(-1)).toEqual({ path: ['tags'], value: ['a', ''] })
+      // now two rows; remove the first
+      const rms = el.querySelectorAll('.array-row .array-rm')
+      ;(rms[0] as HTMLButtonElement).click()
+      expect(changes.at(-1)).toEqual({ path: ['tags'], value: [''] })
+    })
+
+    test('reorder moves an item up', () => {
+      const { el, changes } = build(listSchema, { tags: ['a', 'b', 'c'] })
+      const downFirst = el.querySelectorAll('.array-row')[0]!.querySelectorAll('.array-btn')
+      // buttons order: [up, down, remove]; click "down" on index 0
+      ;(downFirst[1] as HTMLButtonElement).click()
+      expect(changes.at(-1)).toEqual({ path: ['tags'], value: ['b', 'a', 'c'] })
+    })
+
+    test('object item array falls back to a JSON textarea that commits on valid parse', () => {
+      const { el, changes } = build(listSchema, { rules: [{ p: 'x' }] })
+      const ta = el.querySelector('textarea.array-json[data-path="rules"]') as HTMLTextAreaElement
+      expect(ta).toBeTruthy()
+      ta.value = '[{"p":"y"}]'
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(changes).toContainEqual({ path: ['rules'], value: [{ p: 'y' }] })
+      // invalid JSON does not commit
+      const before = changes.length
+      ta.value = '[{bad'
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(changes).toHaveLength(before)
+    })
+  })
+
   test('REQ-R08 (FIND-R3-002): unknown placeholder still shows author description', () => {
     const refSchema = {
       type: 'object',

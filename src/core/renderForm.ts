@@ -3,7 +3,7 @@
 // through per-field `.field-errbox` containers that `refreshErrors` updates in
 // place, so re-validating on every edit never recreates the input the user is
 // interacting with (fixes slider-drag / text-caret jank — REQ-R16).
-import type { FieldError, FieldNode, FieldPath } from './types'
+import type { ArrayField, FieldError, FieldNode, FieldPath } from './types'
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
@@ -75,6 +75,156 @@ function labelEl(field: FieldNode): HTMLLabelElement {
   return label
 }
 
+// REQ-R20: array (list) editing. Primitive item types get per-item rows
+// (add / remove / reorder); object or otherwise-complex items fall back to a
+// live-parsed JSON textarea. Item inputs follow REQ-R19 (no native constraints).
+const PRIMITIVE_ITEM_KINDS = new Set(['string', 'number', 'boolean'])
+
+function itemDefault(item: FieldNode): unknown {
+  if (item.kind === 'boolean') return false
+  if (item.kind === 'number') return 0
+  if (item.kind === 'string' && item.enum) return item.enum[0] ?? ''
+  return ''
+}
+
+function primitiveItemInput(
+  item: FieldNode,
+  value: unknown,
+  onInput: (v: unknown) => void,
+): HTMLElement {
+  if (item.kind === 'boolean') {
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.className = 'toggle'
+    cb.checked = value === true
+    cb.addEventListener('change', () => onInput(cb.checked))
+    return cb
+  }
+  if (item.kind === 'number') {
+    const n = document.createElement('input')
+    n.type = 'number'
+    if (typeof value === 'number') n.value = String(value)
+    n.addEventListener('input', () => onInput(n.value === '' ? undefined : Number(n.value)))
+    return n
+  }
+  if (item.kind === 'string' && item.enum) {
+    const s = document.createElement('select')
+    for (const opt of item.enum) {
+      const o = document.createElement('option')
+      o.value = opt
+      o.textContent = opt
+      s.appendChild(o)
+    }
+    if (typeof value === 'string') s.value = value
+    s.addEventListener('change', () => onInput(s.value))
+    return s
+  }
+  const t = document.createElement('input')
+  t.type = 'text'
+  if (typeof value === 'string') t.value = value
+  t.addEventListener('input', () => onInput(t.value))
+  return t
+}
+
+function iconBtn(label: string, cls: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = cls
+  b.textContent = label
+  b.addEventListener('click', onClick)
+  return b
+}
+
+// Per-item editable list for arrays of primitives. Value edits update the array
+// WITHOUT redrawing rows (keeps caret/focus — REQ-R16); add/remove/reorder redraw.
+function primitiveArrayEditor(
+  field: ArrayField,
+  current: unknown,
+  onChange: OnChange,
+): HTMLElement {
+  const editor = document.createElement('div')
+  editor.className = 'field-array-editor'
+  editor.setAttribute('data-path', pathKey(field.path))
+  let items = Array.isArray(current) ? [...current] : []
+  const rows = document.createElement('div')
+  rows.className = 'array-rows'
+  const emit = () => onChange(field.path, items)
+
+  const drawRows = (): void => {
+    rows.replaceChildren()
+    items.forEach((val, i) => {
+      const row = document.createElement('div')
+      row.className = 'array-row'
+      const input = primitiveItemInput(field.item, val, (v) => {
+        items = items.map((x, j) => (j === i ? v : x))
+        emit()
+      })
+      const up = iconBtn('↑', 'array-btn', () => {
+        if (i === 0) return
+        const next = [...items]
+        ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+        items = next
+        emit()
+        drawRows()
+      })
+      const down = iconBtn('↓', 'array-btn', () => {
+        if (i >= items.length - 1) return
+        const next = [...items]
+        ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
+        items = next
+        emit()
+        drawRows()
+      })
+      const rm = iconBtn('✕', 'array-btn array-rm', () => {
+        items = items.filter((_, j) => j !== i)
+        emit()
+        drawRows()
+      })
+      row.append(input, up, down, rm)
+      rows.appendChild(row)
+    })
+  }
+
+  const add = iconBtn('+ add item', 'array-add', () => {
+    items = [...items, itemDefault(field.item)]
+    emit()
+    drawRows()
+  })
+  drawRows()
+  editor.append(rows, add)
+  return editor
+}
+
+// Fallback for object/complex item types: edit the whole array as JSON text,
+// committing only when it parses (invalid JSON shows an inline note).
+function jsonArrayEditor(
+  field: ArrayField,
+  current: unknown,
+  onChange: OnChange,
+): HTMLElement {
+  const box = document.createElement('div')
+  box.className = 'field-array-json'
+  const ta = document.createElement('textarea')
+  ta.className = 'array-json'
+  ta.setAttribute('data-path', pathKey(field.path))
+  ta.value = JSON.stringify(current ?? [], null, 2)
+  const note = document.createElement('p')
+  note.className = 'field-error'
+  note.hidden = true
+  ta.addEventListener('input', () => {
+    try {
+      const parsed = JSON.parse(ta.value)
+      note.hidden = true
+      onChange(field.path, parsed)
+    } catch {
+      note.hidden = false
+      note.textContent = 'invalid JSON — fix to apply'
+    }
+  })
+  box.append(ta, note)
+  return box
+}
+
 function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLElement {
   if (field.kind === 'object') {
     // REQ-R04: the ROOT object (depth 0) renders WITHOUT the fieldset/legend
@@ -129,12 +279,11 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
   }
 
   if (field.kind === 'array') {
-    // V1: arrays shown read-only as JSON text; editing arrays is deferred.
-    const pre = document.createElement('pre')
-    pre.className = 'field-array'
-    pre.setAttribute('data-path', pathKey(field.path))
-    pre.textContent = JSON.stringify(current ?? [], null, 2)
-    wrap.appendChild(pre)
+    // REQ-R20: primitive item arrays -> per-item rows; complex -> JSON textarea.
+    const editor = PRIMITIVE_ITEM_KINDS.has(field.item.kind)
+      ? primitiveArrayEditor(field, current, onChange)
+      : jsonArrayEditor(field, current, onChange)
+    wrap.appendChild(editor)
     return finish()
   }
 
