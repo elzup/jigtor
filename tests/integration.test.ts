@@ -28,7 +28,7 @@ function setAt(root: unknown, path: FieldPath, value: unknown): unknown {
 }
 
 describe('integration: example config + schema', () => {
-  const schemaParsed = parseJsonFile(read('config.schema.json'))
+  const schemaParsed = parseJsonFile(read('.jigtor/schema.json'))
   const configParsed = parseJsonFile(read('config.json'))
   if (!schemaParsed.ok || !configParsed.ok) throw new Error('example files must be valid JSON')
   const schema = schemaParsed.value

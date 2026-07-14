@@ -1,10 +1,14 @@
 {
   "max": 20,
   "key": "abc123",
-  "mode": "active",
+  "mode": "sleep",
   "telemetry": {
     "enabled": true,
     "intervalSec": 5
   },
-  "tags": ["prod", "eu-west"]
+  "tags": [
+    "prod",
+    "eu-west",
+    "bbb"
+  ]
 }
