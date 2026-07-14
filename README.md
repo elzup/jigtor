@@ -11,9 +11,9 @@ easy to run in restricted environments.
 
 ## Use
 
-Download `jigtor-vX.Y.Z.zip` from GitHub Releases, unzip it, and open
-`index.html` in your browser. The app is fully static; loaded files and edits
-stay in the browser.
+From GitHub Releases, download the `jigtor-vX.Y.Z.zip` asset, not the source
+code archive. Unzip it and open `index.html` in your browser. No install or
+server is required; loaded files and edits stay in the browser.
 
 ## Features (V1)
 

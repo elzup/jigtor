@@ -25,6 +25,8 @@ import {
   type SchemaRow,
 } from './core/schemaEdit'
 import type { FieldNode, FieldPath } from './core/types'
+import exampleSchemaText from '../examples/config.schema.json?raw'
+import exampleConfigText from '../examples/config.json?raw'
 
 const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const
 
@@ -584,22 +586,17 @@ app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click',
 })
 
 app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click', () => {
-  Promise.all([
-    fetch('examples/config.schema.json').then((r) => r.text()),
-    fetch('examples/config.json').then((r) => r.text()),
-  ])
-    .then(([schemaText, configText]) => {
-      const s = parseJsonFile(schemaText)
-      const c = parseJsonFile(configText)
-      if (s.ok) state.schema = s.value
-      if (c.ok) state.config = c.value
-      markNewData() // fresh session -> re-baseline
-      buildForm()
-    })
-    .catch((e) => {
-      status.textContent = `Could not load example: ${String(e)}`
-      status.className = 'status error'
-    })
+  const s = parseJsonFile(exampleSchemaText)
+  const c = parseJsonFile(exampleConfigText)
+  if (!s.ok || !c.ok) {
+    status.textContent = 'Could not load bundled example.'
+    status.className = 'status error'
+    return
+  }
+  state.schema = s.value
+  state.config = c.value
+  markNewData() // fresh session -> re-baseline
+  buildForm()
 })
 
 // ---- save: review diff, then export (allowed even when invalid) ----

@@ -16,15 +16,65 @@ V1 でまだ未確定の判断事項も併記します。
 
 ### 1. アプリを開く
 
-GitHub Releases から配布 zip をダウンロードして使います。インストールやサーバー起動は不要です。
+GitHub Release の配布ファイルをダウンロードして、そのままブラウザで開きます。
+Git / Node.js / npm / サーバー起動は不要です。
+配布 zip は `dist/` ビルドを固めたもので、展開後の `index.html` から相対パスで
+JS / CSS を読み込むため、フォルダごと移動しても動きます。
 
-1. GitHub の **Releases** ページを開く
-2. 最新リリースの `jigtor-vX.Y.Z.zip` をダウンロードする
-3. zip を展開する
-4. 展開したフォルダ内の `index.html` をブラウザで開く
+1. GitHub の **Releases** ページで最新リリースを開く
+2. **Assets** から `jigtor-vX.Y.Z.zip` をダウンロードする
+   - `Source code (zip)` / `Source code (tar.gz)` ではなく、`jigtor-...zip` を選ぶ
+3. ダウンロードした zip を展開する
+4. 展開したフォルダの中にある `index.html` をダブルクリックする
+   - 開かない場合は、`index.html` を Chrome / Edge / Firefox / Safari にドラッグ&ドロップする
 
 静的 web アプリなので、バックエンドはありません。読み込んだ schema / config と編集内容は
 ブラウザ内だけで扱われ、外部サーバーへ送信されません。
+
+#### ディレクトリ構造の例
+
+たとえば `my-device/` の `config.json` を編集したい場合、導入前は jigtor 本体がまだ
+手元に無く、編集対象のファイルだけがあります。
+
+**導入前のディレクトリ構造**
+
+```text
+my-device/
+├── config.schema.json
+└── config.json
+```
+
+GitHub Release から `jigtor-vX.Y.Z.zip` をダウンロードして展開すると、jigtor 本体の
+フォルダが増えます。`my-device/` の中へ入れても、別の場所へ置いても構いません。
+
+**導入後のディレクトリ構造**
+
+```text
+my-device/
+├── config.schema.json
+├── config.json
+└── jigtor-vX.Y.Z/
+    ├── index.html        ← これをブラウザで開く
+    ├── assets/
+    └── examples/
+```
+
+jigtor で `config.schema.json` と `config.json` を読み込み、編集後に
+**Review & save…** から保存すると、ブラウザが新しい `config.json` をダウンロードします。
+必要なら元の `config.json` をバックアップしてから、ダウンロードしたファイルで置き換えます。
+
+**編集後のディレクトリ構造**
+
+```text
+my-device/
+├── config.schema.json
+├── config.json          ← 編集後の config に置き換える
+├── config.before.json   ← 任意: 置き換え前のバックアップ
+└── jigtor-vX.Y.Z/
+    ├── index.html
+    ├── assets/
+    └── examples/
+```
 
 ### 2. ファイルを読み込む
 

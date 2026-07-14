@@ -16,15 +16,65 @@ open app ──▶ load schema + config ──▶ edit (live validation) ──�
 
 ### 1. Open the app
 
-Use the packaged zip from GitHub Releases. No install or local server is needed.
+Download the packaged release asset and open it directly in your browser. You do
+not need Git, Node.js, npm, or a local server.
+The release zip is a packaged `dist/` build; `index.html` loads JS / CSS through
+relative paths, so the extracted folder can be moved as a unit.
 
-1. Open the GitHub **Releases** page.
-2. Download `jigtor-vX.Y.Z.zip` from the latest release.
-3. Unzip it.
-4. Open `index.html` from the extracted folder in your browser.
+1. Open the latest version on the GitHub **Releases** page.
+2. Under **Assets**, download `jigtor-vX.Y.Z.zip`.
+   - Choose `jigtor-...zip`, not `Source code (zip)` or `Source code (tar.gz)`.
+3. Unzip the downloaded file.
+4. Double-click `index.html` inside the extracted folder.
+   - If it does not open, drag `index.html` into Chrome, Edge, Firefox, or Safari.
 
 This is a static web app with no backend. Loaded schema / config files and edits
 stay inside the browser and are not sent to an external server.
+
+#### Directory layout example
+
+For example, if you want to edit `config.json` in `my-device/`, before installing
+jigtor you only have the files you want to edit.
+
+**Before installing**
+
+```text
+my-device/
+├── config.schema.json
+└── config.json
+```
+
+After downloading `jigtor-vX.Y.Z.zip` from GitHub Releases and unzipping it, you
+have a jigtor app folder. You can put it inside `my-device/` or anywhere else.
+
+**After installing**
+
+```text
+my-device/
+├── config.schema.json
+├── config.json
+└── jigtor-vX.Y.Z/
+    ├── index.html        ← open this in your browser
+    ├── assets/
+    └── examples/
+```
+
+Load `config.schema.json` and `config.json` in jigtor. After editing, use
+**Review & save…** to download a new `config.json`. If needed, keep the old file
+as a backup and replace it with the downloaded one.
+
+**After editing**
+
+```text
+my-device/
+├── config.schema.json
+├── config.json          ← replace with the edited config
+├── config.before.json   ← optional backup of the old config
+└── jigtor-vX.Y.Z/
+    ├── index.html
+    ├── assets/
+    └── examples/
+```
 
 ### 2. Load your files
 
