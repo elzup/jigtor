@@ -1,6 +1,18 @@
 # VCSDD Convergence Record — config-editor (jigtor V1 core)
 
-**Status:** CONVERGED (2026-07-14) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX) + 2 (schema editor) + 2 (UX pack)
+**Status:** CONVERGED (2026-07-14) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX) + 2 (schema editor) + 2 (UX pack) + 1 (subforms)
+
+## Cycle 6 — object-array subforms (recursive, collapsible)
+
+CONVERGED after R14 (PASS, zero critical/high). `arrayEditor` unified & recursive:
+object items render as collapsible `<details>` subforms (fold + stepped accent
+rail for depth, not stacked boxes); `subValueEditor`/`objectFields` compose via a
+shared-mutable `current` read at edit-time; structural ops redraw only the editor's
+rows (no full form rebuild); every change emits the WHOLE array so no array-index
+path reaches the object-shaped `setAt`. R14 traced 7 attack vectors (closure
+clobber, stale index, nested-array emit, itemDefault, array-of-array, path
+integrity, meta granularity) — all PASS; the one LOW test-gap was closed with 4
+recursion-depth regression tests. 143 tests green; build 47.9 KB gzip.
 
 ## Cycle 5 — UX pack (editable arrays, per-field meta, free input, save history)
 

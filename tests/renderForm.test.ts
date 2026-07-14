@@ -445,6 +445,95 @@ describe('spec:renderer', () => {
       expect(changes.at(-1)).toEqual({ path: ['rules'], value: [{ path: '/api', allow: true }] })
     })
 
+    // R20-testslop (adversary R14): lock the recursion-depth paths that were only
+    // manually verified — deep nest, reorder-then-re-edit, nested array, array-of-array.
+    const rowInput = (root: Element, name: string): HTMLInputElement => {
+      const row = Array.from(root.querySelectorAll('.subform-row')).find(
+        (r) => r.querySelector(':scope > .field-name')?.textContent === name,
+      )!
+      return row.querySelector('input') as HTMLInputElement
+    }
+    const fire = (el: HTMLElement, type = 'input') =>
+      el.dispatchEvent(new Event(type, { bubbles: true }))
+
+    test('deep nest (object-in-object-in-array): interleaved edits drop nothing', () => {
+      const deep = {
+        type: 'object',
+        properties: {
+          groups: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                a: { type: 'string' },
+                sub: { type: 'object', properties: { x: { type: 'string' }, y: { type: 'string' } } },
+              },
+            },
+          },
+        },
+      }
+      const { el, changes } = build(deep, { groups: [{ a: 'A', sub: { x: 'X', y: 'Y' } }] })
+      const grp = el.querySelector('details.array-item') as HTMLElement
+      const y = rowInput(grp, 'y')
+      y.value = 'Y2'
+      fire(y)
+      const a = rowInput(grp, 'a')
+      a.value = 'A2'
+      fire(a)
+      const x = rowInput(grp, 'x')
+      x.value = 'X2'
+      fire(x)
+      expect(changes.at(-1)).toEqual({
+        path: ['groups'],
+        value: [{ a: 'A2', sub: { x: 'X2', y: 'Y2' } }],
+      })
+    })
+
+    test('edit -> reorder OTHER item -> edit again writes the correct indices', () => {
+      const { el, changes } = build(listSchema, { rules: [{ p: 'a' }, { p: 'b' }, { p: 'c' }] })
+      const item0 = () => el.querySelectorAll('details.array-item')[0] as HTMLElement
+      const p0 = item0().querySelector('input[type="text"]') as HTMLInputElement
+      p0.value = 'A'
+      fire(p0)
+      // move item0 down (swap 0<->1): order becomes [b, A, c], rows redraw
+      ;(item0().querySelector('.array-tools .array-btn:nth-child(2)') as HTMLButtonElement).click()
+      // now edit the NEW index0 (which is 'b')
+      const np0 = item0().querySelector('input[type="text"]') as HTMLInputElement
+      np0.value = 'B'
+      fire(np0)
+      expect(changes.at(-1)).toEqual({ path: ['rules'], value: [{ p: 'B' }, { p: 'A' }, { p: 'c' }] })
+    })
+
+    test('nested array inside an object item emits the whole outer array', () => {
+      const nested = {
+        type: 'object',
+        properties: {
+          groups: {
+            type: 'array',
+            items: { type: 'object', properties: { tags: { type: 'array', items: { type: 'string' } } } },
+          },
+        },
+      }
+      const { el, changes } = build(nested, { groups: [{ tags: ['x'] }] })
+      const grp = el.querySelector('details.array-item') as HTMLElement
+      const innerAdd = grp.querySelector('.field-array-editor .array-add') as HTMLButtonElement
+      innerAdd.click()
+      expect(changes.at(-1)).toEqual({ path: ['groups'], value: [{ tags: ['x', ''] }] })
+    })
+
+    test('array-of-array: outer reorder uses the outer controls and emits the whole outer array', () => {
+      const matrix = {
+        type: 'object',
+        properties: { m: { type: 'array', items: { type: 'array', items: { type: 'string' } } } },
+      }
+      const { el, changes } = build(matrix, { m: [['a'], ['b']] })
+      const outerRow0 = el.querySelector('.field-array-editor[data-path="m"] > .array-rows > .array-row')!
+      // outer controls are the direct-child buttons (nested editor has its own)
+      const down = outerRow0.querySelector(':scope > .array-btn:nth-of-type(2)') as HTMLButtonElement
+      down.click()
+      expect(changes.at(-1)).toEqual({ path: ['m'], value: [['b'], ['a']] })
+    })
+
     test('FIND-A2: clearing a number item emits 0, never undefined/null into the array', () => {
       const numSchema = {
         type: 'object',
