@@ -11,10 +11,13 @@ easy to run in restricted environments.
 
 ## Use
 
-Open the hosted jigtor app in a Chromium-based browser, choose **Open project
-folder**, edit `config.json`, then save back to the same file. Schema and
-history can be written alongside the project; loaded files and edits stay in the
-browser.
+Open the hosted jigtor app in a Chromium-based browser:
+
+https://elzup.github.io/jigtor/
+
+Choose **Open project folder**, edit `config.json`, then save back to the same
+file. Schema and history can be written alongside the project; loaded files and
+edits stay in the browser.
 
 ## Features (V1)
 

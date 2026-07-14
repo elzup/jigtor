@@ -20,7 +20,7 @@ Open the hosted jigtor app in a Chromium-based browser such as Chrome or Edge.
 The app is served online, but your `config.json` contents are not sent to the
 server.
 
-1. Open the jigtor URL.
+1. Open `https://elzup.github.io/jigtor/`.
 2. Click **Open project folder**.
 3. Select the project directory that contains `config.json`.
 4. Grant the browser permission.

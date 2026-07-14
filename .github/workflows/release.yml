@@ -40,8 +40,11 @@ jobs:
           cat > "release/${RELEASE_NAME}/README.txt" <<'EOF'
           jigtor
 
-          Open index.html in your browser.
-          All data stays in the browser; there is no backend.
+          Primary app:
+          https://elzup.github.io/jigtor/
+
+          Direct in-place saving uses the browser File System Access API and
+          requires the hosted HTTPS app in a Chromium-based browser.
           EOF
           (cd release && zip -qr "${RELEASE_NAME}.zip" "${RELEASE_NAME}")
 
@@ -53,4 +56,4 @@ jobs:
           gh release create "$TAG_NAME" \
             "release/jigtor-${TAG_NAME}.zip" \
             --title "jigtor ${TAG_NAME}" \
-            --notes "Download jigtor-${TAG_NAME}.zip, unzip it, and open index.html in your browser."
+            --notes "Use the hosted app at https://elzup.github.io/jigtor/ for direct config.json saving. The zip is a static fallback artifact."

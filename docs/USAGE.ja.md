@@ -19,7 +19,7 @@ V1 でまだ未確定の判断事項も併記します。
 オンラインの jigtor を Chromium 系ブラウザ(Chrome / Edge など)で開きます。
 アプリは配信されますが、`config.json` の内容はサーバーへ送信しません。
 
-1. jigtor の URL を開く
+1. `https://elzup.github.io/jigtor/` を開く
 2. **Open project folder** を押す
 3. `config.json` があるプロジェクトディレクトリを選ぶ
 4. ブラウザの権限確認で許可する
