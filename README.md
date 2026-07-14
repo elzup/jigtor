@@ -9,6 +9,8 @@ easy to run in restricted environments.
 
 **Practical usage flow:** [`docs/USAGE.md`](./docs/USAGE.md) · 日本語 [`docs/USAGE.ja.md`](./docs/USAGE.ja.md)
 
+![jigtor editor showing valid and invalid config states](./docs/assets/jigtor-editor.png)
+
 ## Use
 
 Open the hosted jigtor app in a Chromium-based browser:
