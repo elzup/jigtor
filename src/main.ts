@@ -133,15 +133,22 @@ app.innerHTML = `
     <p>Open config.json, edit safely, review the diff, save back to the same file.</p>
   </header>
   <section id="drop" class="drop">
-    <button id="open-project" class="filebtn" type="button">Open project folder</button>
-    <button id="open-config" class="filebtn" type="button">Open config.json</button>
-    <button id="open-schema" class="filebtn" type="button">Open schema</button>
-    <label class="filebtn">Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
-    <label class="filebtn">Import config<input type="file" id="config-input" accept=".json" hidden></label>
-    <button id="infer-schema" class="filebtn" type="button">Generate schema from config</button>
-    <button id="load-example" class="filebtn" type="button">Load example</button>
-    <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
-    <span class="hint">or drag &amp; drop files here</span>
+    <div class="drop-primary">
+      <button id="open-project" class="filebtn primary" type="button">Open project folder</button>
+      <span class="hint">or drag &amp; drop files here</span>
+    </div>
+    <details class="more" id="more">
+      <summary>Other sources</summary>
+      <div class="more-actions">
+        <button id="open-config" class="filebtn" type="button">Open config.json</button>
+        <button id="open-schema" class="filebtn" type="button">Open schema</button>
+        <label class="filebtn" id="import-config-label">Import config<input type="file" id="config-input" accept=".json" hidden></label>
+        <label class="filebtn" id="import-schema-label">Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
+        <button id="infer-schema" class="filebtn" type="button">Generate schema from config</button>
+        <button id="load-example" class="filebtn" type="button">Load example</button>
+        <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
+      </div>
+    </details>
   </section>
 
   <nav class="tabs">
@@ -204,6 +211,18 @@ const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
 const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
 const openConfigBtn = app.querySelector<HTMLButtonElement>('#open-config')!
 const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
+const moreDetails = app.querySelector<HTMLDetailsElement>('#more')!
+
+// Simplified entry (user request): "Open project folder" is the single primary
+// action; everything else folds into "Other sources". Where the File System
+// Access API is missing (Safari/Firefox), the FS-only openers can't work — hide
+// them and auto-expand the fold so the Import pickers are the visible path.
+if (!canUseFileSystemAccess()) {
+  openProjectBtn.hidden = true
+  openConfigBtn.hidden = true
+  openSchemaBtn.hidden = true
+  moreDetails.open = true
+}
 
 // "Dirty" = the config has unsaved changes since the last load/save. Derived
 // from the same diff baseline used by the save dialog; drives the save prompt.
