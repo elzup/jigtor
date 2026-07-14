@@ -45,13 +45,18 @@ export function fieldHistory(history: SaveHistory, path: FieldPath): FieldHistor
   return history.filter((e) => pathId(e.path) === id)
 }
 
+// A stored entry is only usable if it carries a path array (fieldHistory /
+// historyPaths dereference `path`); tampered/legacy shapes are dropped.
+const isEntry = (e: unknown): e is FieldHistoryEntry =>
+  typeof e === 'object' && e !== null && Array.isArray((e as { path?: unknown }).path)
+
 // REQ-H07: parse persisted history text defensively. Null (absent), invalid
-// JSON, or a non-array all yield an empty history — never throws.
+// JSON, a non-array, or malformed entries all degrade gracefully — never throws.
 export function parseHistory(raw: string | null): SaveHistory {
   if (raw === null) return []
   try {
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as SaveHistory) : []
+    return Array.isArray(parsed) ? parsed.filter(isEntry) : []
   } catch {
     return []
   }

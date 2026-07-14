@@ -16,17 +16,20 @@ open app ──▶ load schema + config ──▶ edit (live validation) ──�
 
 ### 1. Open the app
 
-Download the packaged release asset and open it directly in your browser. You do
-not need Git, Node.js, npm, or a local server.
-The release zip is a packaged `dist/` build; `index.html` loads JS / CSS through
-relative paths, so the extracted folder can be moved as a unit.
+Download the packaged release asset and serve it as static files. No backend is
+required, but opening `index.html` directly through `file://` is not supported.
+The release zip is a packaged `dist/` build and can be placed on any static host
+or local static file server.
 
 1. Open the latest version on the GitHub **Releases** page.
 2. Under **Assets**, download `jigtor-vX.Y.Z.zip`.
    - Choose `jigtor-...zip`, not `Source code (zip)` or `Source code (tar.gz)`.
 3. Unzip the downloaded file.
-4. Double-click `index.html` inside the extracted folder.
-   - If it does not open, drag `index.html` into Chrome, Edge, Firefox, or Safari.
+4. Serve the extracted folder as static files.
+   - Examples: GitHub Pages, Cloudflare Pages, S3 static website, nginx, or an
+     internal file server.
+   - For a local check, run `python3 -m http.server 8000` in the extracted folder
+     and open `http://localhost:8000/`.
 
 This is a static web app with no backend. Loaded schema / config files and edits
 stay inside the browser and are not sent to an external server.
@@ -53,7 +56,7 @@ have a jigtor app folder. You can put it inside `my-device/` or anywhere else.
 my-device/
 ├── config.json
 └── jigtor-vX.Y.Z/
-    ├── index.html        ← open this in your browser
+    ├── index.html        ← open through a static server
     ├── assets/
     └── examples/
 ```

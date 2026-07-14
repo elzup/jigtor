@@ -69,5 +69,8 @@ describe('spec:history', () => {
     expect(parseHistory('{ not json')).toEqual([])
     expect(parseHistory('42')).toEqual([])
     expect(parseHistory('{"a":1}')).toEqual([])
+    // a valid array of MALFORMED entries drops the bad ones (no `path` array)
+    expect(parseHistory('[{"garbage":1}, {"path":["ok"],"before":1,"after":2,"kind":"changed","at":9}]'))
+      .toEqual([{ path: ['ok'], before: 1, after: 2, kind: 'changed', at: 9 }])
   })
 })

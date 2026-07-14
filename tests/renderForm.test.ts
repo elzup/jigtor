@@ -431,6 +431,10 @@ describe('spec:renderer', () => {
       expect(changes.at(-1)).toEqual({ path: ['nums'], value: [1, 0, 3] })
       // and it survives JSON serialization with no null hole
       expect(JSON.stringify(changes.at(-1)!.value)).toBe('[1,0,3]')
+      // a forced non-numeric value (jsdom only) still yields 0, never NaN->null
+      input.value = 'abc'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(JSON.stringify(changes.at(-1)!.value)).toBe('[1,0,3]')
     })
   })
 
