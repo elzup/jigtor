@@ -28,6 +28,11 @@ import {
 import type { FieldNode, FieldPath } from './core/types'
 import exampleSchemaText from '../examples/.jigtor/schema.json?raw'
 import exampleConfigText from '../examples/config.json?raw'
+import { installTauriFileSystem } from './tauri-fs'
+
+// When running inside the Tauri desktop shell, back the File System Access seam
+// with native Rust fs; a no-op in browsers, so this same module drives both.
+installTauriFileSystem()
 
 const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const
 

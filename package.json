@@ -6,6 +6,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "portless run --name jigtor vite",
+    "dev:tauri": "vite --port 5173 --strictPort",
+    "tauri": "tauri",
     "build": "tsc && vite build && node tools/inline-dist.mjs",
     "preview": "vite preview",
     "test": "vitest run",
@@ -14,9 +16,12 @@
     "ceg": "node tools/ceg.mjs"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "ajv": "^8.17.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.1.1",
     "fast-check": "^3.23.1",
     "jsdom": "^25.0.1",
