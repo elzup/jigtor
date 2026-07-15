@@ -22,6 +22,7 @@ import {
   type JsonType,
   type JsonPath,
 } from './core/jsonEdit'
+import { resolveSchemaAt } from './core/schemaAt'
 import {
   recordSnapshot,
   fieldHistory,
@@ -614,9 +615,21 @@ function treeTypeSelect(value: unknown, path: JsonPath): HTMLSelectElement {
   return select
 }
 
-// Type-appropriate leaf editor; commits on change (blur/enter) to avoid caret jumps.
+// Type-appropriate leaf editor; commits on change (blur/enter) to avoid caret
+// jumps. When a schema governs this path, upgrade to its richer widget — enum ->
+// radio (≤6) / select, bounded number -> slider + input — matching the Edit form.
 function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
   const type = valueType(value)
+  const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
+  const enumVals = sub && Array.isArray(sub.enum) ? sub.enum : null
+  if (enumVals && (type === 'string' || type === 'number')) {
+    return enumVals.length <= 6
+      ? treeEnumRadios(enumVals, value, path)
+      : treeEnumSelect(enumVals, value, path)
+  }
+  if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
+    return treeSlider(sub.minimum, sub.maximum, sub.type === 'integer', value, path)
+  }
   if (type === 'boolean') {
     const box = document.createElement('input')
     box.type = 'checkbox'
@@ -639,6 +652,75 @@ function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
     applyTreeEdit(jsonSet(state.config, path, next))
   })
   return input
+}
+
+// enum (> 6 options): dropdown. Option index maps back to the typed enum value.
+function treeEnumSelect(options: unknown[], value: unknown, path: JsonPath): HTMLSelectElement {
+  const select = document.createElement('select')
+  select.className = 'jt-value jt-enum'
+  options.forEach((opt, i) => {
+    const o = document.createElement('option')
+    o.value = String(i)
+    o.textContent = String(opt)
+    if (opt === value) o.selected = true
+    select.appendChild(o)
+  })
+  select.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, options[Number(select.value)])))
+  return select
+}
+
+// enum (≤ 6 options): radio group.
+let radioGroupSeq = 0
+function treeEnumRadios(options: unknown[], value: unknown, path: JsonPath): HTMLElement {
+  const group = document.createElement('span')
+  group.className = 'jt-radios'
+  const name = `jt-radio-${radioGroupSeq++}`
+  options.forEach((opt, i) => {
+    const label = document.createElement('label')
+    label.className = 'jt-radio'
+    const input = document.createElement('input')
+    input.type = 'radio'
+    input.name = name
+    input.checked = opt === value
+    input.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, options[i])))
+    label.append(input, document.createTextNode(String(opt)))
+    group.appendChild(label)
+  })
+  return group
+}
+
+// number with both bounds: range slider paired with a free number input. The
+// range updates the number live while dragging and commits on release.
+function treeSlider(
+  min: number,
+  max: number,
+  integer: boolean,
+  value: unknown,
+  path: JsonPath,
+): HTMLElement {
+  const wrap = document.createElement('span')
+  wrap.className = 'jt-slider'
+  const range = document.createElement('input')
+  range.type = 'range'
+  range.min = String(min)
+  range.max = String(max)
+  range.step = integer ? '1' : 'any'
+  const num = document.createElement('input')
+  num.type = 'number'
+  num.className = 'jt-value'
+  if (typeof value === 'number') {
+    range.value = String(value)
+    num.value = String(value)
+  }
+  const commit = (raw: string): void => {
+    const n = Number(raw)
+    if (Number.isFinite(n)) applyTreeEdit(jsonSet(state.config, path, n))
+  }
+  range.addEventListener('input', () => (num.value = range.value))
+  range.addEventListener('change', () => commit(range.value))
+  num.addEventListener('change', () => commit(num.value))
+  wrap.append(range, num)
+  return wrap
 }
 
 // Per-entry controls: delete, plus reorder for array items.

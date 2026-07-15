@@ -925,6 +925,35 @@ input.toggle:checked::after {
   color: var(--muted);
   font-style: italic;
 }
+.jt-enum {
+  flex: 0 1 auto;
+  min-width: 8ch;
+}
+.jt-radios {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.jt-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.jt-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+.jt-slider input[type='range'] {
+  flex: 1 1 8ch;
+  min-width: 6ch;
+}
+.jt-slider .jt-value {
+  flex: 0 0 8ch;
+  max-width: 8ch;
+}
 .jt-meta {
   color: var(--muted);
   font-size: 0.78rem;
