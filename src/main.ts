@@ -168,7 +168,10 @@ function restoreSaved(): boolean {
   }
 }
 
-const app = document.querySelector<HTMLDivElement>('#app')!
+// Strangler migration: the whole imperative shell is now mounted by React into a
+// container it owns (src/main.tsx). Everything below is unchanged behaviour; it is
+// carved into JSX components incrementally while e2e stays green.
+export function mountLegacyApp(app: HTMLDivElement): void {
 
 // Flat line icons (Feather / react-icons "Fi" style) — inline SVG, currentColor,
 // so they inherit text color/size. Static markup only (no user input).
@@ -2213,3 +2216,5 @@ if (restored) {
   status.className = 'status'
   setReconnectGate(true)
 }
+
+} // end mountLegacyApp
