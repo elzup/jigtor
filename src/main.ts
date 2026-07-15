@@ -2,6 +2,7 @@
 // schema inference/adjustment, default seeding, diff-confirmed save.
 // All schema/validate/render/infer/defaults/diff logic lives in ./core (tested).
 import './style.css'
+import { useUiStore, type Tab } from './ui/store'
 import { parseSchema } from './core/parseSchema'
 import { validateConfig } from './core/validateConfig'
 import {
@@ -276,11 +277,7 @@ app.innerHTML = `
     </div>
   </div>
 
-  <nav class="tabs">
-    <button class="tab active" data-tab="edit" type="button">${svgMarkup(ICON.edit)} Edit</button>
-    <button class="tab" data-tab="schema" type="button">${svgMarkup(ICON.code)} Schema</button>
-    <button class="tab" data-tab="history" type="button">${svgMarkup(ICON.clock)} History</button>
-  </nav>
+  <div id="tabs-slot"></div>
 
   <section id="panel-edit" class="panel">
     <p id="status" class="status"></p>
@@ -1425,24 +1422,25 @@ function renderSchemaTab(): void {
 }
 
 // ---- tabs ----
-app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    app.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'))
-    tab.classList.add('active')
-    const target = tab.dataset.tab
-    app.querySelectorAll<HTMLElement>('.panel').forEach((panel) => {
-      panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
-    })
-    if (target === 'history') renderHistoryTab()
-    // Returning to Edit re-syncs its views from the current config.
-    if (target === 'edit') {
-      if (state.schema !== null) buildForm()
-      if (!modeTree.hidden) {
-        renderTree()
-        renderTreeControls()
-      }
-    }
+// The <nav> is now a React component (src/ui/Tabs.tsx) portaled into #tabs-slot.
+// It writes the active tab to the shared store; this shell subscribes and applies
+// the DOM side effects (panel visibility + view re-sync) it always did.
+function showTab(target: Tab): void {
+  app.querySelectorAll<HTMLElement>('.panel').forEach((panel) => {
+    panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
   })
+  if (target === 'history') renderHistoryTab()
+  // Returning to Edit re-syncs its views from the current config.
+  if (target === 'edit') {
+    if (state.schema !== null) buildForm()
+    if (!modeTree.hidden) {
+      renderTree()
+      renderTreeControls()
+    }
+  }
+}
+useUiStore.subscribe((s, prev) => {
+  if (s.activeTab !== prev.activeTab) showTab(s.activeTab)
 })
 
 // ---- file inputs / drop ----
@@ -1886,7 +1884,7 @@ function generateSchemaFromConfig(): boolean {
   }
   loadSchema(inferSchema(state.config))
   schemaMsg.textContent = 'generated from config — adjust as needed'
-  ;(app.querySelector('.tab[data-tab="schema"]') as HTMLButtonElement).click()
+  useUiStore.getState().setActiveTab('schema')
   return true
 }
 
