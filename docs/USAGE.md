@@ -5,6 +5,22 @@ actually use it end to end.
 
 > 日本語版: [`USAGE.ja.md`](./USAGE.ja.md)
 
+## Editions
+
+jigtor ships in two forms that share the exact same editor — pick by environment:
+
+| | Hosted web app | Offline desktop app |
+|---|---|---|
+| Get it | `https://elzup.github.io/jigtor/` | Download from [GitHub Releases](https://github.com/elzup/jigtor/releases) (macOS / Windows / Linux) |
+| Runs | Chromium-based browser (Chrome / Edge) | Native app — no browser, no internet needed |
+| In-place save | File System Access API (Chromium only) | Native file access (works on any OS) |
+| Best for | Quick edits, always-latest | Restricted / air-gapped environments, non-Chromium machines |
+
+The desktop build wraps the same web bundle in a native window (~9 MB — it uses
+the OS webview, it does **not** ship a browser). File reads and writes go through
+the OS instead of the browser API, so the "save in place" flow works everywhere,
+fully offline.
+
 ## As-built flow (what works today)
 
 ```
@@ -14,19 +30,31 @@ open app ──▶ choose project folder ──▶ edit (live validation) ──
                from config only)                                                schema/history also saved)
 ```
 
-### 1. Open the online app
+### 1. Open jigtor
 
-Open the hosted jigtor app in a Chromium-based browser such as Chrome or Edge.
-The app is served online, but your `config.json` contents are not sent to the
-server.
+**Hosted web app** — open `https://elzup.github.io/jigtor/` in a Chromium-based
+browser (Chrome / Edge). The app is served online, but your `config.json`
+contents are never sent to the server.
 
-1. Open `https://elzup.github.io/jigtor/`.
-2. Click **Open project folder**.
-3. Select the project directory that contains `config.json`.
-4. Grant the browser permission.
+**Offline desktop app** — download the build for your OS from
+[GitHub Releases](https://github.com/elzup/jigtor/releases) and launch it. No
+internet or browser required; file access is native, so in-place saving works on
+macOS, Windows, and Linux alike. (Builds are unsigned — on first launch macOS
+may need right-click → Open.)
 
-If the folder already has a `.jigtor/schema.json` from a previous session, jigtor
-loads it automatically. If not, you can generate a schema from `config.json`.
+Then, in either edition:
+
+1. Click **Open project folder**.
+2. Select the project directory that contains your config.
+3. (Web only) grant the browser permission.
+4. If the folder holds more than one JSON file, jigtor asks **which file to
+   edit** (with `config.json` pre-highlighted). A single JSON is opened directly.
+
+A **Project files** tree shows what jigtor manages in that folder — the config
+you are editing, sibling JSON files (click to switch), and the `.jigtor/`
+artifacts. If the folder already has a `.jigtor/schema.json` from a previous
+session, jigtor loads it automatically; if not, it **recommends generating a
+schema** from your config to get typed controls.
 
 #### Directory layout example
 
@@ -60,8 +88,9 @@ is optional.
 
 - No schema? Load the config alone and click **Generate schema from config** to
   get an editable draft schema (types inferred, round-trip safe).
-- Browsers without File System Access API support fall back to downloading
-  `config.json` instead of writing in place.
+- Browsers without File System Access API support (Safari / Firefox) fall back to
+  downloading `config.json` instead of writing in place — use the **offline
+  desktop app** to save in place on those machines.
 - **Load example** boots a demo (schema + config) to try the tool immediately.
 
 ### 3. Edit through generated controls

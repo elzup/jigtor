@@ -13,13 +13,21 @@ easy to run in restricted environments.
 
 ## Use
 
-Open the hosted jigtor app in a Chromium-based browser:
+Two editions, same editor — pick by environment:
 
-https://elzup.github.io/jigtor/
+- **Hosted web app** — open <https://elzup.github.io/jigtor/> in a Chromium-based
+  browser (Chrome / Edge). In-place saving uses the File System Access API.
+- **Offline desktop app** — download the macOS / Windows / Linux build from
+  [Releases](https://github.com/elzup/jigtor/releases). Runs fully offline with
+  native file access (no browser, no internet), so save-in-place works on any OS.
+  It wraps the same web bundle in the OS webview (~9 MB — no bundled browser).
 
-Choose **Open project folder**, edit `config.json`, then save back to the same
-file. Schema and history can be written alongside the project; loaded files and
-edits stay in the browser.
+Choose **Open project folder**; if the folder holds several JSON files, pick which
+to edit. Edit through generated controls, review the diff, and save back to the
+same file. Schema and version history are written alongside the project under
+`.jigtor/`; loaded files and edits stay local.
+
+See [`docs/USAGE.md`](./docs/USAGE.md) for the full flow.
 
 ## Features (V1)
 
@@ -46,10 +54,24 @@ ni            # install
 nr dev        # dev server (jigtor.localhost via portless)
 nr test       # vitest (unit + property-based + integration)
 nr typecheck  # tsc --noEmit
-nr build      # production build (~40 KB gzip)
+nr build      # production build (single self-contained index.html)
 ```
 
 Try it with the files in `examples/`.
+
+### Desktop app ([Tauri](https://tauri.app/))
+
+The desktop build reuses the same frontend; `src/tauri-fs.ts` backs the File
+System Access seam with native Rust fs (`src-tauri/`) when running in the webview,
+and is inert in a browser. Requires the [Rust toolchain](https://rustup.rs/).
+
+```bash
+nr tauri dev    # run the native app against the dev server
+nr tauri build  # produce a native bundle (.app/.dmg, .msi, AppImage/deb)
+```
+
+Release: pushing a `v*` tag builds web + desktop and attaches everything to a
+GitHub Release (`.github/workflows/release.yml`).
 
 ## Architecture
 
@@ -69,4 +91,5 @@ property-based hardening → convergence. The full trace, spec dependency graph
 
 - `$ref` resolution and `oneOf`/`anyOf`/`allOf`.
 - Editable array UI (V1 is read-only for arrays).
-- Optional [Tauri](https://tauri.app/) wrapper for non-Chromium environments.
+- Signed / notarized desktop builds (current [Tauri](https://tauri.app/) builds
+  are unsigned).

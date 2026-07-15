@@ -4,6 +4,21 @@
 
 > English: [`USAGE.md`](./USAGE.md)
 
+## エディション
+
+jigtor は**まったく同じエディタ**を2つの形で配布します。環境で選んでください:
+
+| | ホスト web 版 | オフライン デスクトップ版 |
+|---|---|---|
+| 入手 | `https://elzup.github.io/jigtor/` | [GitHub Releases](https://github.com/elzup/jigtor/releases) から DL(macOS / Windows / Linux) |
+| 動作 | Chromium 系ブラウザ(Chrome / Edge) | ネイティブアプリ — ブラウザ不要・ネット不要 |
+| 直接保存 | File System Access API(Chromium のみ) | ネイティブ file access(全 OS で動く) |
+| 向く用途 | すぐ編集・常に最新 | 制限/エアギャップ環境、非 Chromium マシン |
+
+デスクトップ版は同じ web バンドルをネイティブウィンドウに包んだもの(約 9 MB —
+OS の webview を使うので**ブラウザは同梱しません**)。読み書きはブラウザ API では
+なく OS 経由なので、「直接保存」が全 OS で完全オフラインに動きます。
+
 ## 実装済みフロー(いま動くもの)
 
 ```
@@ -13,18 +28,29 @@
               schema を推論も可)                                            schema/履歴も保存)
 ```
 
-### 1. オンラインアプリを開く
+### 1. jigtor を開く
 
-オンラインの jigtor を Chromium 系ブラウザ(Chrome / Edge など)で開きます。
-アプリは配信されますが、`config.json` の内容はサーバーへ送信しません。
+**ホスト web 版** — Chromium 系ブラウザ(Chrome / Edge)で
+`https://elzup.github.io/jigtor/` を開く。アプリは配信されますが、`config.json`
+の内容はサーバーへ送信しません。
 
-1. `https://elzup.github.io/jigtor/` を開く
-2. **Open project folder** を押す
-3. `config.json` があるプロジェクトディレクトリを選ぶ
-4. ブラウザの権限確認で許可する
+**オフライン デスクトップ版** — [GitHub Releases](https://github.com/elzup/jigtor/releases)
+から OS 別ビルドを DL して起動。ネットもブラウザも不要で、file access が
+ネイティブなので macOS / Windows / Linux いずれでも直接保存が動きます。
+(ビルドは未署名。macOS の初回は 右クリック → 開く が必要な場合あり)
 
-前回のセッションで作られた `.jigtor/schema.json` があれば自動で読み込みます。
-無ければ `config.json` から schema を生成して編集できます。
+どちらのエディションでも次の手順:
+
+1. **Open project folder** を押す
+2. 対象の config があるディレクトリを選ぶ
+3. (web 版のみ)ブラウザの権限確認で許可する
+4. フォルダに JSON が複数あれば、**どのファイルを編集するか**尋ねます
+   (`config.json` があれば強調表示)。1 つだけなら直接開きます。
+
+**Project files** ツリーで、そのフォルダ内で jigtor が扱うもの — 編集中の config、
+兄弟 JSON(クリックで切替)、`.jigtor/` の生成物 — が見えます。前回の
+`.jigtor/schema.json` があれば自動読み込み。無ければ config から**スキーマ生成を
+推奨**し、型付きコントロールを得られます。
 
 #### ディレクトリ構造の例
 
@@ -57,7 +83,8 @@ my-device/
 
 - schema が無い場合: config だけ読み込んで **Generate schema from config** を押すと、
   型を推論した下書きスキーマを生成(往復安全)。
-- File System Access API 非対応ブラウザでは、直接上書き保存はできず download fallback になります。
+- File System Access API 非対応ブラウザ(Safari / Firefox)では直接上書き保存はできず
+  download fallback になります。そうしたマシンで直接保存したいときは**デスクトップ版**を使ってください。
 - **Load example** でデモ(schema + config)を即起動して試せる。
 
 ### 3. 生成されたコントロールで編集
