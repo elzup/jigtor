@@ -231,10 +231,6 @@ function svgIcon(inner: string): SVGSVGElement {
 }
 
 app.innerHTML = `
-  <header>
-    <h1>jigtor</h1>
-    <p>Open config.json, edit safely, review the diff, save back to the same file.</p>
-  </header>
   <div class="file-bar">
     <section id="drop" class="drop">
       <div class="drop-primary">

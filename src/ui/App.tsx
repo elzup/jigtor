@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { mountLegacyApp } from '../main'
+import { Header } from './Header'
 
-// Strangler root: React owns the mount; the imperative shell is mounted once into
-// a container React renders. Panels are carved out into JSX from here.
+// Strangler root: React owns the mount and renders carved-out JSX panels (Header
+// so far) above the still-imperative shell, which is mounted once into a
+// container React renders.
 export function App() {
   const ref = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
@@ -11,5 +13,10 @@ export function App() {
     mounted.current = true
     mountLegacyApp(ref.current)
   }, [])
-  return <div ref={ref} />
+  return (
+    <>
+      <Header />
+      <div ref={ref} />
+    </>
+  )
 }
