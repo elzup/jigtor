@@ -8,12 +8,13 @@ import { parseJsonFile, serializeConfig, classifyFile } from './core/fileIo'
 import { renderForm, refreshErrors, refreshFieldMeta } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
-import { diffConfig, type Change } from './core/diffConfig'
+import { diffConfig } from './core/diffConfig'
 import { lineDiff } from './core/lineDiff'
 import {
   valueType,
   defaultForType,
   coerceType,
+  jsonGet,
   jsonSet,
   jsonDelete,
   jsonRenameKey,
@@ -177,7 +178,6 @@ app.innerHTML = `
 
   <nav class="tabs">
     <button class="tab active" data-tab="edit" type="button">Edit</button>
-    <button class="tab" data-tab="tree" type="button">Tree</button>
     <button class="tab" data-tab="schema" type="button">Schema</button>
     <button class="tab" data-tab="history" type="button">History</button>
   </nav>
@@ -189,8 +189,24 @@ app.innerHTML = `
     </details>
     <p id="status" class="status"></p>
     <div id="schema-recommend" class="recommend" hidden></div>
-    <label class="compact-toggle"><input type="checkbox" id="compact-mode"> Compact fields</label>
-    <main id="form-host"></main>
+    <div class="edit-mode-bar">
+      <div class="mode-switch" role="tablist">
+        <button id="mode-block-btn" class="mode active" data-mode="block" type="button">Block</button>
+        <button id="mode-tree-btn" class="mode" data-mode="tree" type="button">Tree</button>
+      </div>
+      <label class="compact-toggle"><input type="checkbox" id="compact-mode"> Compact fields</label>
+    </div>
+    <div id="mode-block">
+      <main id="form-host"></main>
+    </div>
+    <div id="mode-tree" hidden>
+      <p class="hint">Direct JSON editing — no schema needed. Edit values, change
+        types, rename keys, add / remove / reorder. Controls panel on the right.</p>
+      <div class="tree-cols">
+        <div id="tree-host" class="tree-edit"></div>
+        <aside id="tree-controls" class="tree-controls"></aside>
+      </div>
+    </div>
     <details id="config-json" class="config-json" open>
       <summary>Live diff — whole file (vs last load / save)</summary>
       <pre id="config-preview"></pre>
@@ -200,12 +216,6 @@ app.innerHTML = `
       <span id="dirty-note" class="dirty-note" hidden></span>
     </footer>
     <div id="save-dialog" class="save-dialog" hidden></div>
-  </section>
-
-  <section id="panel-tree" class="panel" hidden>
-    <p class="hint">Direct JSON editing — no schema needed. Edit values in place,
-      change types, rename keys, add / remove / reorder entries.</p>
-    <div id="tree-host" class="tree-edit"></div>
   </section>
 
   <section id="panel-schema" class="panel" hidden>
@@ -246,7 +256,30 @@ const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
 const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
 const treeHost = app.querySelector<HTMLDivElement>('#tree-host')!
+const treeControls = app.querySelector<HTMLElement>('#tree-controls')!
+const modeBlock = app.querySelector<HTMLDivElement>('#mode-block')!
+const modeTree = app.querySelector<HTMLDivElement>('#mode-tree')!
 const compactToggle = app.querySelector<HTMLInputElement>('#compact-mode')!
+
+// Edit tab has two views of the same config: Block (schema-driven form) and Tree
+// (schema-independent JSON editor). Switching to Block re-syncs the form from the
+// current config; switching to Tree renders the editor + the controls panel.
+function setEditMode(mode: 'block' | 'tree'): void {
+  modeBlock.hidden = mode !== 'block'
+  modeTree.hidden = mode !== 'tree'
+  app.querySelectorAll<HTMLButtonElement>('.mode-switch .mode').forEach((b) =>
+    b.classList.toggle('active', b.dataset.mode === mode),
+  )
+  if (mode === 'tree') {
+    renderTree()
+    renderTreeControls()
+  } else if (state.schema !== null) {
+    buildForm()
+  }
+}
+app.querySelectorAll<HTMLButtonElement>('.mode-switch .mode').forEach((btn) => {
+  btn.addEventListener('click', () => setEditMode(btn.dataset.mode === 'tree' ? 'tree' : 'block'))
+})
 
 // Compact field layout (user request): dotted path + description on a small top
 // line, label + input below. Pure CSS re-flow of the existing form DOM; the
@@ -304,11 +337,7 @@ function updateDirty(): void {
 // Live whole-file diff of the config as it is edited (user request): the entire
 // file is shown, with every line since the loaded/saved baseline marked as
 // added / removed / unchanged so pending edits are visible in place before save.
-function renderConfigPreview(): void {
-  if (state.schema === null) {
-    configPreview.replaceChildren()
-    return
-  }
+function fillWholeFileDiff(target: HTMLElement): void {
   const before = (JSON.stringify(state.original, null, 2) ?? 'null').split('\n')
   const after = (JSON.stringify(state.config, null, 2) ?? 'null').split('\n')
   const frag = document.createDocumentFragment()
@@ -319,7 +348,11 @@ function renderConfigPreview(): void {
     line.textContent = mark + row.text
     frag.appendChild(line)
   }
-  configPreview.replaceChildren(frag)
+  target.replaceChildren(frag)
+}
+
+function renderConfigPreview(): void {
+  fillWholeFileDiff(configPreview)
 }
 
 // spec:history UI — group saved changes by field (dotted path), newest field
@@ -485,6 +518,7 @@ const pathKey = (path: JsonPath): string => JSON.stringify(path)
 function applyTreeEdit(next: unknown): void {
   state.config = next
   renderTree()
+  renderTreeControls()
   if (state.schema !== null && currentForm !== null) {
     revalidate() // also refreshes preview / dirty / persist
   } else {
@@ -502,6 +536,91 @@ function renderTree(): void {
     // A bare primitive root: offer a single value editor at the root path.
     treeHost.replaceChildren(treeLeafRow('(value)', state.config, [], { root: true }))
   }
+}
+
+// All leaf (non-container) paths of the config, in document order.
+function flattenLeaves(value: unknown, path: JsonPath, out: Array<[JsonPath, unknown]>): void {
+  const type = valueType(value)
+  if (type === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      flattenLeaves(v, [...path, k], out)
+    }
+  } else if (type === 'array') {
+    ;(value as unknown[]).forEach((v, i) => flattenLeaves(v, [...path, i], out))
+  } else if (path.length > 0) {
+    out.push([path, value])
+  }
+}
+
+const dotPath = (path: JsonPath): string => (path.length ? path.join('.') : '(root)')
+
+// Control panel (right of the Tree editor): a compact dashboard of every leaf —
+// bounded numbers as sliders / progress bars, booleans as toggles, enums as
+// selects, everything else read-only. Edits flow through the same pipeline.
+function renderTreeControls(): void {
+  const leaves: Array<[JsonPath, unknown]> = []
+  flattenLeaves(state.config, [], leaves)
+  const frag = document.createDocumentFragment()
+  for (const [path, value] of leaves) {
+    const row = document.createElement('div')
+    row.className = 'tc-row'
+    const label = document.createElement('code')
+    label.className = 'tc-label'
+    label.textContent = dotPath(path)
+    row.append(label, treeControl(path, value))
+    frag.appendChild(row)
+  }
+  if (leaves.length === 0) {
+    frag.appendChild(metaSpan('No fields yet.', 'hint'))
+  }
+  treeControls.replaceChildren(frag)
+}
+
+function treeControl(path: JsonPath, value: unknown): HTMLElement {
+  const type = valueType(value)
+  const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
+  if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
+    return tcGauge(sub.minimum, sub.maximum, value as number, path)
+  }
+  if (type === 'boolean') {
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.className = 'tc-toggle'
+    box.checked = value === true
+    box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
+    return box
+  }
+  if (sub && Array.isArray(sub.enum) && (type === 'string' || type === 'number')) {
+    return treeEnumSelect(sub.enum, value, path)
+  }
+  return metaSpan(type === 'string' ? String(value) : JSON.stringify(value), 'tc-value')
+}
+
+// A range slider backed by a proportional fill bar; commits on release.
+function tcGauge(min: number, max: number, value: number, path: JsonPath): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'tc-gauge'
+  const range = document.createElement('input')
+  range.type = 'range'
+  range.min = String(min)
+  range.max = String(max)
+  range.step = '1'
+  range.value = String(value)
+  const pct = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 0
+  const bar = document.createElement('div')
+  bar.className = 'tc-bar'
+  bar.style.setProperty('--fill', `${pct}%`)
+  const readout = metaSpan(`${value}/${max}`, 'tc-readout')
+  range.addEventListener('input', () => {
+    bar.style.setProperty('--fill', `${((Number(range.value) - min) / (max - min)) * 100}%`)
+    readout.textContent = `${range.value}/${max}`
+  })
+  range.addEventListener('change', () => {
+    const n = Number(range.value)
+    if (Number.isFinite(n)) applyTreeEdit(jsonSet(state.config, path, n))
+  })
+  wrap.append(bar, range, readout)
+  return wrap
 }
 
 function treeContainerBody(container: unknown, path: JsonPath): HTMLElement {
@@ -556,8 +675,11 @@ function treeContainerRow(
     treeKeyCell(key, path, inArray),
     treeTypeSelect(value, path),
     metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`),
-    treeActions(path, inArray),
   )
+  if (JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
+    header.append(metaSpan('●', 'jt-dot')) // subtree changed since baseline
+  }
+  header.append(treeActions(path, inArray))
   li.appendChild(header)
   if (!collapsed) li.appendChild(treeContainerBody(value, path))
   return li
@@ -573,7 +695,54 @@ function treeLeafRow(
   row.className = 'jt-row'
   if (!opts.root) row.append(spacer(), treeKeyCell(key, path, opts.inArray ?? false))
   row.append(treeTypeSelect(value, path), treeValueEditor(value, path))
-  if (!opts.root) row.append(treeActions(path, opts.inArray ?? false))
+  if (opts.root) return row
+  row.append(treeActions(path, opts.inArray ?? false))
+  const meta = treeChangedMeta(path, value) // "was <baseline>" + reset, when dirty
+  if (meta) row.append(meta)
+
+  // Per-field save history (with each version's timestamp), toggled per row.
+  const entries = fieldHistory(history, path.map(String))
+  if (entries.length === 0) return row
+  const leaf = document.createElement('div')
+  leaf.className = 'jt-leaf'
+  const panel = document.createElement('div')
+  panel.className = 'jt-history'
+  panel.hidden = true
+  for (const e of entries) panel.appendChild(treeHistoryRow(e.at, e.after, path))
+  const toggle = iconButton(`🕘 ${entries.length}`, 'field history', () => (panel.hidden = !panel.hidden))
+  toggle.classList.add('jt-hist-btn')
+  row.append(toggle)
+  leaf.append(row, panel)
+  return leaf
+}
+
+// "was <baseline>" chip + reset button, shown only when the leaf differs from
+// the loaded/saved baseline (state.original) — mirrors the Edit form's meta.
+function treeChangedMeta(path: JsonPath, current: unknown): HTMLElement | null {
+  const base = jsonGet(state.original, path)
+  if (JSON.stringify(base) === JSON.stringify(current)) return null
+  const wrap = document.createElement('span')
+  wrap.className = 'jt-meta jt-changed'
+  wrap.append(metaSpan(base === undefined ? 'new' : `was ${JSON.stringify(base)}`, 'jt-was'))
+  const reset = iconButton('↩', 'reset to saved', () =>
+    applyTreeEdit(base === undefined ? jsonDelete(state.config, path) : jsonSet(state.config, path, base)),
+  )
+  reset.classList.add('jt-reset')
+  wrap.append(reset)
+  return wrap
+}
+
+// One past version of a field: its timestamp + value, click to restore.
+function treeHistoryRow(at: number, value: unknown, path: JsonPath): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'jt-hist-row'
+  const val = document.createElement('button')
+  val.type = 'button'
+  val.className = 'jt-hist-val'
+  val.textContent = JSON.stringify(value)
+  val.title = 'restore this value'
+  val.addEventListener('click', () => applyTreeEdit(jsonSet(state.config, path, value)))
+  row.append(metaSpan(fmtTime(at), 'jt-hist-time'), val)
   return row
 }
 
@@ -628,7 +797,7 @@ function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
       : treeEnumSelect(enumVals, value, path)
   }
   if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
-    return treeSlider(sub.minimum, sub.maximum, sub.type === 'integer', value, path)
+    return treeSlider(sub.minimum, sub.maximum, value, path)
   }
   if (type === 'boolean') {
     const box = document.createElement('input')
@@ -691,20 +860,14 @@ function treeEnumRadios(options: unknown[], value: unknown, path: JsonPath): HTM
 
 // number with both bounds: range slider paired with a free number input. The
 // range updates the number live while dragging and commits on release.
-function treeSlider(
-  min: number,
-  max: number,
-  integer: boolean,
-  value: unknown,
-  path: JsonPath,
-): HTMLElement {
+function treeSlider(min: number, max: number, value: unknown, path: JsonPath): HTMLElement {
   const wrap = document.createElement('span')
   wrap.className = 'jt-slider'
   const range = document.createElement('input')
   range.type = 'range'
   range.min = String(min)
   range.max = String(max)
-  range.step = integer ? '1' : 'any'
+  range.step = '1' // default coarse step; the paired number input takes any value
   const num = document.createElement('input')
   num.type = 'number'
   num.className = 'jt-value'
@@ -1002,10 +1165,14 @@ app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
       panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
     })
     if (target === 'history') renderHistoryTab()
-    if (target === 'tree') renderTree()
-    // Re-sync the schema form from the current config (it may have been edited in
-    // the Tree tab, which mutates state.config directly).
-    if (target === 'edit' && state.schema !== null) buildForm()
+    // Returning to Edit re-syncs its views from the current config.
+    if (target === 'edit') {
+      if (state.schema !== null) buildForm()
+      if (!modeTree.hidden) {
+        renderTree()
+        renderTreeControls()
+      }
+    }
   })
 })
 
@@ -1383,16 +1550,6 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
 })
 
 // ---- save: review diff, then write config.json (allowed even when invalid) ----
-function renderChange(c: Change): HTMLElement {
-  const row = document.createElement('li')
-  row.className = `change change-${c.kind}`
-  const where = fmtPath(c.path)
-  const fmt = (v: unknown) => (v === undefined ? '∅' : JSON.stringify(v))
-  const detail = c.kind === 'added' ? `+ ${fmt(c.after)}` : c.kind === 'removed' ? `− ${fmt(c.before)}` : `${fmt(c.before)} → ${fmt(c.after)}`
-  row.textContent = `${c.kind.toUpperCase()}  ${where}: ${detail}`
-  return row
-}
-
 function download(): void {
   const blob = new Blob([serializeConfig(state.config)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -1471,16 +1628,15 @@ function markSaved(): void {
 }
 
 app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
-  if (state.schema === null) return
   const changes = diffConfig(state.original, state.config)
-  const result = validateConfig(state.schema, state.config)
+  const result = state.schema !== null ? validateConfig(state.schema, state.config) : null
 
   saveDialog.replaceChildren()
   const title = document.createElement('h3')
   title.textContent = 'Review changes'
   saveDialog.appendChild(title)
 
-  if (!result.valid) {
+  if (result && !result.valid) {
     const warn = document.createElement('p')
     warn.className = 'status error'
     warn.textContent = `⚠ ${result.errors.length} validation error(s) — you can still save.`
@@ -1493,10 +1649,11 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
     none.textContent = 'No changes from the loaded config.'
     saveDialog.appendChild(none)
   } else {
-    const list = document.createElement('ul')
-    list.className = 'change-list'
-    for (const c of changes) list.appendChild(renderChange(c))
-    saveDialog.appendChild(list)
+    // Review changes as the JSON body itself (whole-file diff), not a change list.
+    const diff = document.createElement('pre')
+    diff.className = 'save-diff'
+    fillWholeFileDiff(diff)
+    saveDialog.appendChild(diff)
   }
 
   const actions = document.createElement('div')
