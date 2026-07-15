@@ -1215,16 +1215,27 @@ function spacer(): HTMLSpanElement {
   return metaSpan('', 'jt-spacer')
 }
 
+// Re-render BOTH Edit views from the current state after a data load. The Block
+// form renders into a container that is hidden while the default Tree view is
+// active, so calling buildForm() alone leaves the visible Tree stale until a
+// tab/mode round-trip triggers renderTree() (the reported "form not updated on
+// load" bug). Mirror the project-open path, which already refreshes both.
+function refreshEditViews(): void {
+  buildForm()
+  renderTree()
+  renderTreeControls()
+}
+
 function loadSchema(value: unknown): void {
   state.schema = value
   schemaRecommend.hidden = true // a schema now exists — drop the recommendation
-  buildForm()
+  refreshEditViews()
 }
 
 function loadConfig(value: unknown): void {
   hasLoadedConfig = true
   state.config = value
-  buildForm()
+  refreshEditViews()
   updateConnectionAlert()
 }
 
@@ -1936,7 +1947,7 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
   hasLoadedConfig = true
   markNewData() // fresh session -> re-baseline
   exitProjectMode() // the bundled example isn't a real folder
-  buildForm()
+  refreshEditViews()
 })
 
 // ---- save: review diff, then write config.json (allowed even when invalid) ----

@@ -36,4 +36,20 @@ test.describe('Tree editor', () => {
     await expect(page.locator('.jt-type-chip[data-type="string"]').first()).toBeVisible()
     await expect(page.locator('.jt-type-chip[data-type="boolean"]').first()).toBeVisible()
   })
+
+  test('loading populates the Tree immediately, without a mode/tab round-trip', async ({
+    page,
+  }) => {
+    // Regression: load only rebuilt the hidden Block form, so the visible Tree
+    // (the default view) stayed stale until the user switched tabs/modes. Note
+    // there is deliberately NO #mode-tree-btn click here — the Tree must be
+    // populated the instant the example loads.
+    await loadExample(page)
+
+    const tree = page.locator('#tree-host')
+    await expect(tree).toBeVisible()
+    await expect(tree.locator('.jt-row').first()).toBeVisible()
+    // the demo's "name" key is present as an editable key input
+    await expect(tree.locator('input.jt-key').first()).toHaveValue('name')
+  })
 })
