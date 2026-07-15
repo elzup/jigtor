@@ -21,14 +21,27 @@ the OS webview, it does **not** ship a browser). File reads and writes go throug
 the OS instead of the browser API, so the "save in place" flow works everywhere,
 fully offline.
 
-## As-built flow (what works today)
+## As-built flow
 
+```mermaid
+flowchart TD
+    A[Open jigtor<br/>web or offline desktop] --> B[Open project folder]
+    B --> C{Multiple JSON files?}
+    C -->|yes| D[Pick which one is the config]
+    C -->|no| E[Open the config]
+    D --> E
+    E --> F{Schema found?}
+    F -->|no| G[Generate schema from config]
+    F -->|yes| H[Edit with live validation]
+    G --> H
+    H --> I[Review diff]
+    I --> J[Save in place]
+    J --> K["Files written:<br/>config.json (updated in place)<br/>.jigtor/schema.json<br/>.jigtor/history.json.gz"]
 ```
-open app ──▶ choose project folder ──▶ edit (live validation) ──▶ review diff ──▶ save config.json in place
-                    │                        │                                         │
-              (or infer schema         (unsaved-change prompt)                  (session saved to
-               from config only)                                                schema/history also saved)
-```
+
+Files jigtor creates or updates on save: **`config.json`** (your file, in place),
+**`.jigtor/schema.json`** (current schema), and **`.jigtor/history.json.gz`**
+(gzipped version history). Nothing else in the folder is touched.
 
 ### 1. Open jigtor
 
