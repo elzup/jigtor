@@ -26,9 +26,62 @@
 body {
   margin-inline: auto;
   padding: 2.5rem 1.5rem 3rem;
-  max-width: 760px;
+  max-width: 1120px;
   background: var(--bg);
   color: var(--text);
+}
+
+/* Inline restore alert: only the Edit panel content below it is unavailable. */
+.panel.restore-gated > :not(.reconnect-gate) {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+}
+.reconnect-gate {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+.reconnect-gate[hidden] {
+  display: none;
+}
+.reconnect-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.reconnect-title h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.reconnect-icon,
+.connection-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.reconnect-gate .schema-actions {
+  margin-top: 1rem;
+}
+.connection-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.88rem;
+}
+.connection-alert[hidden] {
+  display: none;
+}
+.connection-alert .filebtn {
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 /* ---- header ---- */
@@ -54,6 +107,12 @@ textarea {
   padding: 0.4rem 0.55rem;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
+/* muted placeholder so it's clearly distinct from a real entered value */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
@@ -64,6 +123,10 @@ button:focus-visible,
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
@@ -72,6 +135,12 @@ button {
   cursor: pointer;
   font-weight: 500;
   transition: background 0.12s, border-color 0.12s;
+}
+.jt-icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+  flex: 0 0 1rem;
+  vertical-align: -0.125em;
 }
 button:hover:not(:disabled) {
   border-color: var(--accent);
@@ -82,6 +151,27 @@ button:disabled {
 }
 
 /* ---- drop zone ---- */
+.file-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+  margin: 1rem 0;
+}
+.file-bar:not(:has(.drop-manage > :not([hidden]))) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.drop-manage:not(:has(> :not([hidden]))) {
+  display: none;
+}
+.drop-manage {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .file-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .drop {
   display: flex;
   flex-direction: column;
@@ -89,7 +179,7 @@ button:disabled {
   border: 1.5px dashed var(--border-strong);
   border-radius: var(--radius);
   padding: 1rem;
-  margin: 1rem 0;
+  margin: 0;
   background: var(--surface);
 }
 .drop.dragover {
@@ -103,6 +193,9 @@ button:disabled {
   flex-wrap: wrap;
 }
 .filebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.8rem;
@@ -802,18 +895,20 @@ input.toggle:checked::after {
   cursor: default;
 }
 
-/* Tree mode: editor on the left, controls panel on the right (stacks on narrow) */
-.tree-cols {
+/* Live diff + Tree controls panel, side by side below the editor */
+.diff-cols {
   display: flex;
   gap: 1rem;
   align-items: flex-start;
+  margin-top: 1rem;
 }
-.tree-cols > .tree-edit {
-  flex: 1 1 60%;
+.diff-cols > .config-json {
+  flex: 1 1 auto;
   min-width: 0;
+  margin-top: 0;
 }
 .tree-controls {
-  flex: 1 1 40%;
+  flex: 0 1 38%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -822,37 +917,48 @@ input.toggle:checked::after {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
-  position: sticky;
-  top: 0.5rem;
   font-size: 0.85rem;
 }
+.tree-controls[hidden] {
+  display: none;
+}
 @media (max-width: 760px) {
-  .tree-cols {
+  .diff-cols {
     flex-direction: column;
   }
-  .tree-cols > .tree-edit,
+  .diff-cols > .config-json,
   .tree-controls {
     width: 100%;
     flex: 1 1 auto;
   }
 }
-.tc-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.tc-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.tc-table tr + tr {
+  border-top: 1px solid var(--border);
+}
+.tc-table th,
+.tc-table td {
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+  vertical-align: middle;
 }
 .tc-label {
-  flex: 0 0 auto;
   color: var(--muted);
+  font-weight: 400;
   font-size: 0.75rem;
-  max-width: 40%;
+  white-space: nowrap;
+  max-width: 14ch;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.tc-cell {
+  width: 100%;
 }
 .tc-value {
   color: var(--text);
-  margin-left: auto;
 }
 .tc-gauge {
   display: flex;
@@ -1178,4 +1284,159 @@ input.toggle:checked::after {
 
 footer {
   margin-top: 1.5rem;
+}
+
+/* ---- icons pass: spacing, fold toggle, type chips, schema-external badge ---- */
+/* the shared .jt-icon has no gap, so space it from following text per context */
+.filebtn .jt-icon,
+.tab .jt-icon,
+.mode .jt-icon,
+#save .jt-icon,
+.tree-label .jt-icon {
+  margin-inline-end: 0.4em;
+}
+.jt-btn .jt-icon {
+  margin-inline-end: 0.15em;
+}
+.tree-label .jt-icon {
+  color: var(--muted);
+}
+
+/* fold toggle: a clear chevron instead of the ambiguous ▸/▾ glyph */
+.jt-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.jt-toggle .jt-icon {
+  margin: 0;
+  inline-size: 0.85rem;
+  block-size: 0.85rem;
+  flex-basis: 0.85rem;
+}
+
+/* type picker: a color-coded symbol chip beside the native <select> */
+.jt-type-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.jt-type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.5em;
+  block-size: 1.4em;
+  padding: 0 0.3em;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+.jt-type-chip[data-type='string'] {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+.jt-type-chip[data-type='number'],
+.jt-type-chip[data-type='integer'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.jt-type-chip[data-type='boolean'] {
+  color: #8b5cf6;
+  background: color-mix(in srgb, #8b5cf6 16%, transparent);
+}
+.jt-type-chip[data-type='object'] {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.jt-type-chip[data-type='array'] {
+  color: #0d9488;
+  background: color-mix(in srgb, #0d9488 16%, transparent);
+}
+.jt-type-chip[data-type='null'] {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+/* schema-external key: editable but not validated by the loaded schema */
+.jt-schema-ext {
+  margin-inline-start: 0.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+/* compact fields must still read as separate rows — a hairline divider + a bit
+   of padding keeps them from visually sticking together while staying dense */
+.compact .field {
+  margin: 0;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+}
+.compact .field:first-child {
+  border-top: none;
+  padding-top: 0.1rem;
+}
+
+/* ---- Tree layout polish: align the edit controls into columns ---- */
+/* Row does not grow, so controls stay grouped after the key — right-aligned into
+   a consistent column without drifting to the far edge. */
+.jt-row {
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+/* fixed-width key + type so the value column (and the actions after it) line up
+   vertically from row to row */
+.jt-key {
+  flex: 0 0 10ch;
+}
+.jt-type {
+  inline-size: 5.25rem;
+  flex: 0 0 auto;
+}
+.jt-type-wrap {
+  flex: 0 0 auto;
+}
+.jt-value {
+  flex: 0 1 20ch;
+  max-width: 22ch;
+}
+/* keep the slider from stretching the whole row */
+.jt-slider {
+  flex: 0 1 20ch;
+  max-width: 22ch;
+}
+.jt-slider input[type='range'] {
+  flex: 1 1 auto;
+  max-inline-size: 11ch;
+}
+/* common action buttons: reserve a small consistent strip, pushed just to the
+   right of the value (not the far edge, so short values don't leave a big gap) */
+.jt-actions {
+  flex: 0 0 auto;
+  margin-inline-start: 0.25rem;
+}
+/* icon-only buttons (delete / move / reset): square, centered, no text offset —
+   fixes the lopsided "×" */
+.jt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.jt-btn--icon {
+  padding: 0.1rem;
+  inline-size: 1.35rem;
+  block-size: 1.35rem;
+}
+.jt-btn--icon .jt-icon {
+  margin: 0;
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
+  flex-basis: 0.9rem;
 }

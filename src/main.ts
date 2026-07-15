@@ -8,7 +8,8 @@ import {
   parseJsonFile,
   serializeConfig,
   classifyFile,
-  prepareConfigReconnect,
+  prepareProjectReconnect,
+  resolveSaveTargetMode,
 } from './core/fileIo'
 import { renderForm, refreshErrors, refreshFieldMeta } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
@@ -35,6 +36,7 @@ import {
   fieldHistory,
   historyPaths,
   parseHistory,
+  mergeHistories,
   type SaveHistory,
   type FieldHistoryEntry,
 } from './core/history'
@@ -57,8 +59,13 @@ installTauriFileSystem()
 
 const FIELD_TYPES = ['string', 'number', 'integer', 'boolean', 'object', 'array'] as const
 
-type State = { schema: unknown | null; config: unknown; original: unknown }
-const state: State = { schema: null, config: {}, original: {} }
+type State = {
+  schema: unknown | null
+  config: unknown
+  original: unknown
+  originalSchema: unknown | null
+}
+const state: State = { schema: null, config: {}, original: {}, originalSchema: null }
 
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
 
@@ -93,10 +100,14 @@ type FilePickerWindow = Window & {
 
 let configFileHandle: FileSystemFileHandleLike | null = null
 let projectDirectoryHandle: FileSystemDirectoryHandleLike | null = null
+let hasConfirmedDownloadMode = false
+let hasLoadedConfig = false
 let currentConfigName: string | null = null // which file the project tree marks as "editing"
 const filePickerWindow = window as FilePickerWindow
 const canUseFileSystemAccess = (): boolean =>
   typeof filePickerWindow.showOpenFilePicker === 'function'
+const canUseProjectAccess = (): boolean =>
+  typeof filePickerWindow.showDirectoryPicker === 'function'
 
 // Root-anchored dotted path shared with the Edit form (REQ-R17): [] -> "." ,
 // ['a','b'] -> ".a.b". Replaces the old "(root)" placeholder everywhere.
@@ -147,7 +158,9 @@ function restoreSaved(): boolean {
     const saved = JSON.parse(raw) as { schema?: unknown; config?: unknown }
     if (saved.schema == null) return false
     state.schema = saved.schema
+    state.originalSchema = clone(saved.schema)
     state.config = saved.config ?? {}
+    hasLoadedConfig = true
     markNewData()
     return true
   } catch {
@@ -157,72 +170,150 @@ function restoreSaved(): boolean {
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
+// Flat line icons (Feather / react-icons "Fi" style) — inline SVG, currentColor,
+// so they inherit text color/size. Static markup only (no user input).
+const ICON = {
+  folder:
+    '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  file: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/>',
+  link: '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  download:
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  switch:
+    '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  alert:
+    '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  wand: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+  trash:
+    '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  layout:
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+  branch:
+    '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+  redo: '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  reset:
+    '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  up: '<polyline points="18 15 12 9 6 15"/>',
+  down: '<polyline points="6 9 12 15 18 9"/>',
+  chevronRight: '<polyline points="9 18 15 12 9 6"/>',
+} as const
+
+const svgMarkup = (inner: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="jt-icon" aria-hidden="true">${inner}</svg>`
+
+function svgIcon(inner: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  for (const [k, v] of Object.entries({
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    class: 'jt-icon',
+    'aria-hidden': 'true',
+  })) {
+    svg.setAttribute(k, v)
+  }
+  svg.innerHTML = inner
+  return svg
+}
+
 app.innerHTML = `
   <header>
     <h1>jigtor</h1>
     <p>Open config.json, edit safely, review the diff, save back to the same file.</p>
   </header>
-  <section id="drop" class="drop">
-    <div class="drop-primary">
-      <button id="open-project" class="filebtn primary" type="button">Open project folder</button>
-      <span class="hint">or drag &amp; drop files here</span>
-    </div>
-    <details class="more" id="more">
-      <summary>Other sources</summary>
-      <div class="more-actions">
-        <button id="open-config" class="filebtn" type="button">Open config.json</button>
-        <button id="open-schema" class="filebtn" type="button">Open schema</button>
-        <label class="filebtn" id="import-config-label">Import config<input type="file" id="config-input" accept=".json" hidden></label>
-        <label class="filebtn" id="import-schema-label">Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
-        <button id="infer-schema" class="filebtn" type="button">Generate schema from config</button>
-        <button id="load-example" class="filebtn" type="button">Load example</button>
-        <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
+  <div class="file-bar">
+    <section id="drop" class="drop">
+      <div class="drop-primary">
+        <button id="open-project" class="filebtn primary" type="button">${svgMarkup(ICON.folder)} Open project folder</button>
+        <span class="hint">or drag &amp; drop files here</span>
       </div>
-    </details>
-    <div id="project-picker" class="project-picker" hidden></div>
-  </section>
+      <details class="more" id="more">
+        <summary>Other sources</summary>
+        <div class="more-actions">
+          <button id="open-schema" class="filebtn" type="button">${svgMarkup(ICON.file)} Open schema</button>
+          <label class="filebtn" id="import-config-label">${svgMarkup(ICON.download)} Import config<input type="file" id="config-input" accept=".json" hidden></label>
+          <label class="filebtn" id="import-schema-label">${svgMarkup(ICON.download)} Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
+          <button id="infer-schema" class="filebtn" type="button">${svgMarkup(ICON.wand)} Generate schema from config</button>
+          <button id="load-example" class="filebtn" type="button">${svgMarkup(ICON.play)} Load example</button>
+          <button id="forget" class="filebtn" type="button" hidden>${svgMarkup(ICON.trash)} Forget saved</button>
+        </div>
+      </details>
+    </section>
+    <div class="drop-manage" id="manage">
+      <div id="project-picker" class="project-picker" hidden></div>
+      <section id="reconnect-gate" class="reconnect-gate" aria-labelledby="reconnect-gate-title" hidden>
+        <div class="reconnect-title">
+          <span class="reconnect-icon" aria-hidden="true">${svgMarkup(ICON.folder)}</span>
+          <h2 id="reconnect-gate-title">Reconnect project</h2>
+        </div>
+        <p>Reconnect the original folder to keep config.json and .jigtor files in sync.</p>
+        <p class="hint">Choose the same project folder. Nothing is written until Save.</p>
+        <p id="reconnect-gate-status" class="status error" hidden></p>
+        <div class="schema-actions">
+          <button id="reconnect-gate-action" class="filebtn primary" type="button">${svgMarkup(ICON.folder)} Reconnect project folder…</button>
+          <button id="download-mode-action" type="button">${svgMarkup(ICON.switch)} Use Download mode</button>
+        </div>
+      </section>
+      <aside id="connection-alert" class="connection-alert" role="status" hidden>
+        <span class="connection-icon" aria-hidden="true">${svgMarkup(ICON.alert)}</span>
+        <span><strong>Not connected</strong> — Download mode. Project history is unavailable.</span>
+        <button id="connection-reconnect" class="filebtn" type="button">${svgMarkup(ICON.folder)} Reconnect project…</button>
+      </aside>
+      <details id="project-tree" class="project-tree-view" hidden>
+        <summary>Project files</summary>
+        <div id="project-tree-body"></div>
+      </details>
+    </div>
+  </div>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="edit" type="button">Edit</button>
-    <button class="tab" data-tab="schema" type="button">Schema</button>
-    <button class="tab" data-tab="history" type="button">History</button>
+    <button class="tab active" data-tab="edit" type="button">${svgMarkup(ICON.edit)} Edit</button>
+    <button class="tab" data-tab="schema" type="button">${svgMarkup(ICON.code)} Schema</button>
+    <button class="tab" data-tab="history" type="button">${svgMarkup(ICON.clock)} History</button>
   </nav>
 
   <section id="panel-edit" class="panel">
-    <details id="project-tree" class="project-tree-view" hidden>
-      <summary>Project files</summary>
-      <div id="project-tree-body"></div>
-    </details>
     <p id="status" class="status"></p>
     <div id="schema-recommend" class="recommend" hidden></div>
     <div class="edit-mode-bar">
       <div class="mode-switch" role="tablist">
-        <button id="mode-block-btn" class="mode active" data-mode="block" type="button">Block</button>
-        <button id="mode-tree-btn" class="mode" data-mode="tree" type="button">Tree</button>
+        <button id="mode-block-btn" class="mode" data-mode="block" type="button">${svgMarkup(ICON.layout)} Block</button>
+        <button id="mode-tree-btn" class="mode active" data-mode="tree" type="button">${svgMarkup(ICON.branch)} Tree</button>
       </div>
       <span class="undo-redo">
-        <button id="undo" class="filebtn" type="button" title="Undo (Ctrl/Cmd+Z)" disabled>↶ Undo</button>
-        <button id="redo" class="filebtn" type="button" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷ Redo</button>
+        <button id="undo" class="filebtn" type="button" title="Undo (Ctrl/Cmd+Z)" disabled>${svgMarkup(ICON.undo)} Undo</button>
+        <button id="redo" class="filebtn" type="button" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>${svgMarkup(ICON.redo)} Redo</button>
       </span>
       <label class="compact-toggle"><input type="checkbox" id="compact-mode"> Compact fields</label>
     </div>
-    <div id="mode-block">
+    <div id="mode-block" hidden>
       <main id="form-host"></main>
     </div>
-    <div id="mode-tree" hidden>
+    <div id="mode-tree">
       <p class="hint">Direct JSON editing — no schema needed. Edit values, change
-        types, rename keys, add / remove / reorder. Controls panel on the right.</p>
-      <div class="tree-cols">
-        <div id="tree-host" class="tree-edit"></div>
-        <aside id="tree-controls" class="tree-controls"></aside>
-      </div>
+        types, rename keys, add / remove / reorder.</p>
+      <div id="tree-host" class="tree-edit"></div>
     </div>
-    <details id="config-json" class="config-json" open>
-      <summary>Live diff — whole file (vs last load / save)</summary>
-      <pre id="config-preview"></pre>
-    </details>
+    <div class="diff-cols">
+      <details id="config-json" class="config-json" open>
+        <summary>Live diff — whole file (vs last load / save)</summary>
+        <pre id="config-preview"></pre>
+      </details>
+      <aside id="tree-controls" class="tree-controls" hidden></aside>
+    </div>
     <footer class="save-bar">
-      <button id="save" type="button">Review &amp; save…</button>
+      <button id="save" type="button">${svgMarkup(ICON.save)} Review &amp; save…</button>
       <span id="dirty-note" class="dirty-note" hidden></span>
     </footer>
     <div id="save-dialog" class="save-dialog" hidden></div>
@@ -254,6 +345,13 @@ app.innerHTML = `
 `
 
 const status = app.querySelector<HTMLParagraphElement>('#status')!
+const panelEdit = app.querySelector<HTMLElement>('#panel-edit')!
+const reconnectGate = app.querySelector<HTMLElement>('#reconnect-gate')!
+const reconnectGateStatus = app.querySelector<HTMLParagraphElement>('#reconnect-gate-status')!
+const reconnectGateAction = app.querySelector<HTMLButtonElement>('#reconnect-gate-action')!
+const downloadModeAction = app.querySelector<HTMLButtonElement>('#download-mode-action')!
+const connectionAlert = app.querySelector<HTMLElement>('#connection-alert')!
+const connectionReconnect = app.querySelector<HTMLButtonElement>('#connection-reconnect')!
 const formHost = app.querySelector<HTMLElement>('#form-host')!
 const schemaEditor = app.querySelector<HTMLTextAreaElement>('#schema-editor')!
 const schemaMsg = app.querySelector<HTMLSpanElement>('#schema-msg')!
@@ -271,12 +369,34 @@ const modeBlock = app.querySelector<HTMLDivElement>('#mode-block')!
 const modeTree = app.querySelector<HTMLDivElement>('#mode-tree')!
 const compactToggle = app.querySelector<HTMLInputElement>('#compact-mode')!
 
+function setReconnectGate(isOpen: boolean): void {
+  reconnectGate.hidden = !isOpen
+  panelEdit.classList.toggle('restore-gated', isOpen)
+  for (const child of Array.from(panelEdit.children)) {
+    if (child !== reconnectGate && child instanceof HTMLElement) child.inert = isOpen
+  }
+  if (isOpen) (reconnectGateAction.disabled ? downloadModeAction : reconnectGateAction).focus()
+  updateConnectionAlert()
+}
+
+function updateConnectionAlert(): void {
+  connectionAlert.hidden = !hasLoadedConfig || projectDirectoryHandle !== null || !reconnectGate.hidden
+}
+
+const saveTargetMode = () =>
+  resolveSaveTargetMode(
+    projectDirectoryHandle !== null && configFileHandle !== null,
+    canUseProjectAccess(),
+    hasConfirmedDownloadMode,
+  )
+
 // Edit tab has two views of the same config: Block (schema-driven form) and Tree
 // (schema-independent JSON editor). Switching to Block re-syncs the form from the
 // current config; switching to Tree renders the editor + the controls panel.
 function setEditMode(mode: 'block' | 'tree'): void {
   modeBlock.hidden = mode !== 'block'
   modeTree.hidden = mode !== 'tree'
+  treeControls.hidden = mode !== 'tree' // the controls panel sits beside the Live diff
   app.querySelectorAll<HTMLButtonElement>('.mode-switch .mode').forEach((b) =>
     b.classList.toggle('active', b.dataset.mode === mode),
   )
@@ -388,7 +508,6 @@ const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
 const projectTree = app.querySelector<HTMLDetailsElement>('#project-tree')!
 const projectTreeBody = app.querySelector<HTMLDivElement>('#project-tree-body')!
 const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
-const openConfigBtn = app.querySelector<HTMLButtonElement>('#open-config')!
 const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
 const moreDetails = app.querySelector<HTMLDetailsElement>('#more')!
 
@@ -397,19 +516,20 @@ const moreDetails = app.querySelector<HTMLDetailsElement>('#more')!
 // Access API is missing (Safari/Firefox), the FS-only openers can't work — hide
 // them and auto-expand the fold so the Import pickers are the visible path.
 if (!canUseFileSystemAccess()) {
-  openProjectBtn.hidden = true
-  openConfigBtn.hidden = true
   openSchemaBtn.hidden = true
   moreDetails.open = true
 }
+if (!canUseProjectAccess()) openProjectBtn.hidden = true
 
-// "Dirty" = the config has unsaved changes since the last load/save. Derived
-// from the same diff baseline used by the save dialog; drives the save prompt.
+// Dirty includes both config changes and schema edits such as field removal.
 let isDirty = false
 function updateDirty(): void {
-  const count = state.schema === null ? 0 : diffConfig(state.original, state.config).length
+  const configCount = diffConfig(state.original, state.config).length
+  const schemaCount = JSON.stringify(state.originalSchema) === JSON.stringify(state.schema) ? 0 : 1
+  const count = configCount + schemaCount
   isDirty = count > 0
-  saveBtn.textContent = isDirty ? `Review & save… (${count})` : 'Review & save…'
+  const label = isDirty ? `Review & save… (${count})` : 'Review & save…'
+  saveBtn.replaceChildren(svgIcon(ICON.save), document.createTextNode(label))
   saveBtn.classList.toggle('dirty', isDirty)
   dirtyNote.hidden = !isDirty
   dirtyNote.textContent = isDirty ? `${count} unsaved change(s) — not saved yet` : ''
@@ -644,20 +764,27 @@ const dotPath = (path: JsonPath): string => (path.length ? path.join('.') : '(ro
 function renderTreeControls(): void {
   const leaves: Array<[JsonPath, unknown]> = []
   flattenLeaves(state.config, [], leaves)
-  const frag = document.createDocumentFragment()
-  for (const [path, value] of leaves) {
-    const row = document.createElement('div')
-    row.className = 'tc-row'
-    const label = document.createElement('code')
-    label.className = 'tc-label'
-    label.textContent = dotPath(path)
-    row.append(label, treeControl(path, value))
-    frag.appendChild(row)
-  }
   if (leaves.length === 0) {
-    frag.appendChild(metaSpan('No fields yet.', 'hint'))
+    treeControls.replaceChildren(metaSpan('No fields yet.', 'hint'))
+    return
   }
-  treeControls.replaceChildren(frag)
+  const table = document.createElement('table')
+  table.className = 'tc-table'
+  const tbody = document.createElement('tbody')
+  for (const [path, value] of leaves) {
+    const tr = document.createElement('tr')
+    const th = document.createElement('th')
+    th.className = 'tc-label'
+    th.scope = 'row'
+    th.textContent = dotPath(path)
+    const td = document.createElement('td')
+    td.className = 'tc-cell'
+    td.appendChild(treeControl(path, value))
+    tr.append(th, td)
+    tbody.appendChild(tr)
+  }
+  table.appendChild(tbody)
+  treeControls.replaceChildren(table)
 }
 
 function treeControl(path: JsonPath, value: unknown): HTMLElement {
@@ -669,7 +796,7 @@ function treeControl(path: JsonPath, value: unknown): HTMLElement {
   if (type === 'boolean') {
     const box = document.createElement('input')
     box.type = 'checkbox'
-    box.className = 'tc-toggle'
+    box.className = 'tc-toggle toggle'
     box.checked = value === true
     box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
     return box
@@ -746,8 +873,9 @@ function treeContainerRow(
   const collapsed = collapsedPaths.has(pathKey(path))
   const toggle = document.createElement('button')
   toggle.type = 'button'
-  toggle.className = 'jt-toggle'
-  toggle.textContent = collapsed ? '▸' : '▾'
+  toggle.className = `jt-toggle${collapsed ? '' : ' open'}`
+  toggle.setAttribute('aria-label', collapsed ? 'expand' : 'collapse')
+  toggle.appendChild(svgIcon(collapsed ? ICON.chevronRight : ICON.down))
   toggle.addEventListener('click', () => {
     if (collapsed) collapsedPaths.delete(pathKey(path))
     else collapsedPaths.add(pathKey(path))
@@ -760,6 +888,8 @@ function treeContainerRow(
     treeTypeSelect(value, path),
     metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`),
   )
+  const ext = schemaExtBadge(path, inArray)
+  if (ext) header.append(ext)
   if (JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
     header.append(metaSpan('●', 'jt-dot')) // subtree changed since baseline
   }
@@ -781,10 +911,13 @@ function treeLeafRow(
   row.append(treeTypeSelect(value, path), treeValueEditor(value, path))
   if (opts.root) return row
   row.append(treeActions(path, opts.inArray ?? false))
+  const ext = schemaExtBadge(path, opts.inArray ?? false)
+  if (ext) row.append(ext)
   const meta = treeChangedMeta(path, value) // "was <baseline>" + reset, when dirty
   if (meta) row.append(meta)
 
-  // Per-field save history (with each version's timestamp), toggled per row.
+  // Per-field save history (with each version's timestamp), toggled per row and
+  // rendered lazily — the rows are built only the first time the panel is opened.
   const entries = fieldHistory(history, path.map(String))
   if (entries.length === 0) return row
   const leaf = document.createElement('div')
@@ -792,28 +925,53 @@ function treeLeafRow(
   const panel = document.createElement('div')
   panel.className = 'jt-history'
   panel.hidden = true
-  for (const e of entries) panel.appendChild(treeHistoryRow(e.at, e.after, path))
-  const toggle = iconButton(`🕘 ${entries.length}`, 'field history', () => (panel.hidden = !panel.hidden))
+  let populated = false
+  const toggle = svgIconButton(
+    ICON.clock,
+    'field history',
+    () => {
+      if (!populated) {
+        for (const e of entries) panel.appendChild(treeHistoryRow(e.at, e.after, path))
+        populated = true
+      }
+      panel.hidden = !panel.hidden
+    },
+    ` ${entries.length}`,
+  )
   toggle.classList.add('jt-hist-btn')
   row.append(toggle)
   leaf.append(row, panel)
   return leaf
 }
 
-// "was <baseline>" chip + reset button, shown only when the leaf differs from
-// the loaded/saved baseline (state.original) — mirrors the Edit form's meta.
+// When a schema is loaded, flag keys it does not define. Such keys stay fully
+// editable in Tree mode — this is only a heads-up that the schema won't validate
+// them. Only the top-most external key is badged (its whole subtree is external),
+// and array items are skipped to avoid per-element noise.
+function schemaExtBadge(path: JsonPath, inArray: boolean): HTMLElement | null {
+  if (state.schema === null || path.length === 0 || inArray) return null
+  if (resolveSchemaAt(state.schema, path) !== null) return null
+  const parent = path.slice(0, -1)
+  const parentGoverned = parent.length === 0 || resolveSchemaAt(state.schema, parent) !== null
+  if (!parentGoverned) return null // an ancestor is already flagged
+  const badge = metaSpan('schema外', 'jt-schema-ext')
+  badge.title = 'Not defined in the schema — editable, but the schema does not validate this key.'
+  return badge
+}
+
+// Reset-to-baseline button, shown only when the leaf differs from the
+// loaded/saved baseline (state.original). The previous value is not shown inline
+// (that's history — reachable via the clock button); it's in the reset tooltip.
 function treeChangedMeta(path: JsonPath, current: unknown): HTMLElement | null {
   const base = jsonGet(state.original, path)
   if (JSON.stringify(base) === JSON.stringify(current)) return null
-  const wrap = document.createElement('span')
-  wrap.className = 'jt-meta jt-changed'
-  wrap.append(metaSpan(base === undefined ? 'new' : `was ${JSON.stringify(base)}`, 'jt-was'))
-  const reset = iconButton('↩', 'reset to saved', () =>
-    applyTreeEdit(base === undefined ? jsonDelete(state.config, path) : jsonSet(state.config, path, base)),
+  const reset = svgIconButton(
+    ICON.reset,
+    base === undefined ? 'remove (added since last save)' : `reset to ${JSON.stringify(base)}`,
+    () => applyTreeEdit(base === undefined ? jsonDelete(state.config, path) : jsonSet(state.config, path, base)),
   )
-  reset.classList.add('jt-reset')
-  wrap.append(reset)
-  return wrap
+  reset.classList.add('jt-reset', 'jt-changed')
+  return reset
 }
 
 // One past version of a field: its timestamp + value, click to restore.
@@ -849,15 +1007,33 @@ function treeKeyCell(key: string | number, path: JsonPath, inArray: boolean): HT
   return input
 }
 
-function treeTypeSelect(value: unknown, path: JsonPath): HTMLSelectElement {
+// Short glyph per JSON type — a scannable, color-coded hint next to the type
+// picker (native <select> options can't carry SVG, so the color lives on a chip).
+const TYPE_SYMBOL: Record<string, string> = {
+  string: '"',
+  number: '#',
+  integer: '#',
+  boolean: '◑',
+  object: '{}',
+  array: '[]',
+  null: '∅',
+}
+
+function treeTypeSelect(value: unknown, path: JsonPath): HTMLElement {
+  const wrap = document.createElement('span')
+  wrap.className = 'jt-type-wrap'
+  const current = valueType(value)
+  const chip = document.createElement('span')
+  chip.className = 'jt-type-chip'
+  chip.dataset.type = current
+  chip.textContent = TYPE_SYMBOL[current] ?? '?'
   const select = document.createElement('select')
   select.className = 'jt-type'
   select.setAttribute('aria-label', 'type')
-  const current = valueType(value)
   for (const t of JSON_TYPES) {
     const opt = document.createElement('option')
     opt.value = t
-    opt.textContent = t
+    opt.textContent = `${TYPE_SYMBOL[t] ?? ''} ${t}`.trim()
     if (t === current) opt.selected = true
     select.appendChild(opt)
   }
@@ -865,7 +1041,8 @@ function treeTypeSelect(value: unknown, path: JsonPath): HTMLSelectElement {
     const t = select.value as JsonType
     applyTreeEdit(jsonSet(state.config, path, coerceType(value, t)))
   })
-  return select
+  wrap.append(chip, select)
+  return wrap
 }
 
 // Type-appropriate leaf editor; commits on change (blur/enter) to avoid caret
@@ -886,7 +1063,7 @@ function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
   if (type === 'boolean') {
     const box = document.createElement('input')
     box.type = 'checkbox'
-    box.className = 'jt-bool'
+    box.className = 'jt-bool toggle'
     box.checked = value === true
     box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
     return box
@@ -978,11 +1155,11 @@ function treeActions(path: JsonPath, inArray: boolean): HTMLElement {
     const index = Number(path[path.length - 1])
     const arrayPath = path.slice(0, -1)
     wrap.append(
-      iconButton('↑', 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1))),
-      iconButton('↓', 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1))),
+      svgIconButton(ICON.up, 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1))),
+      svgIconButton(ICON.down, 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1))),
     )
   }
-  wrap.append(iconButton('✕', 'delete', () => applyTreeEdit(jsonDelete(state.config, path))))
+  wrap.append(svgIconButton(ICON.x, 'delete', () => applyTreeEdit(jsonDelete(state.config, path))))
   return wrap
 }
 
@@ -993,8 +1170,11 @@ function treeAddRow(container: unknown, path: JsonPath): HTMLElement {
   row.appendChild(spacer())
   if (Array.isArray(container)) {
     row.appendChild(
-      iconButton('+ item', 'add item', () =>
-        applyTreeEdit(jsonInsert(state.config, path, '', defaultForType('string'))),
+      svgIconButton(
+        ICON.plus,
+        'add item',
+        () => applyTreeEdit(jsonInsert(state.config, path, '', defaultForType('string'))),
+        ' item',
       ),
     )
     return row
@@ -1011,16 +1191,19 @@ function treeAddRow(container: unknown, path: JsonPath): HTMLElement {
   keyInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') add()
   })
-  row.append(keyInput, iconButton('+ key', 'add key', add))
+  row.append(keyInput, svgIconButton(ICON.plus, 'add key', add, ' key'))
   return row
 }
 
-function iconButton(text: string, label: string, onClick: () => void): HTMLButtonElement {
+// Flat inline SVG action button with an optional text label.
+function svgIconButton(inner: string, label: string, onClick: () => void, text?: string): HTMLButtonElement {
   const btn = document.createElement('button')
   btn.type = 'button'
-  btn.className = 'jt-btn'
-  btn.textContent = text
+  btn.className = text === undefined ? 'jt-btn jt-btn--icon' : 'jt-btn'
   btn.setAttribute('aria-label', label)
+  btn.title = label
+  btn.appendChild(svgIcon(inner))
+  if (text !== undefined) btn.append(text)
   btn.addEventListener('click', onClick)
   return btn
 }
@@ -1043,8 +1226,10 @@ function loadSchema(value: unknown): void {
 }
 
 function loadConfig(value: unknown): void {
+  hasLoadedConfig = true
   state.config = value
   buildForm()
+  updateConnectionAlert()
 }
 
 function loadConfigFromHandle(value: unknown, handle: FileSystemFileHandleLike): void {
@@ -1106,7 +1291,8 @@ function conInput(
   wrap.className = 'schema-con'
   const inp = document.createElement('input')
   inp.type = inputType
-  inp.placeholder = label
+  // No placeholder: the label text is already shown next to the input, and a
+  // placeholder duplicating it is indistinguishable from a real entered value.
   if (value !== undefined) inp.value = String(value)
   inp.addEventListener('change', () => onCommit(inp.value)) // commit on blur/enter, not per-keystroke
   wrap.append(document.createTextNode(label), inp)
@@ -1261,7 +1447,7 @@ app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
 })
 
 // ---- file inputs / drop ----
-async function openWithFileSystemAccess(kind: 'schema' | 'config'): Promise<void> {
+async function openSchemaWithFileSystemAccess(): Promise<void> {
   if (!canUseFileSystemAccess()) {
     status.textContent = 'Direct file save requires a Chromium-based browser with File System Access API support.'
     status.className = 'status error'
@@ -1280,11 +1466,7 @@ async function openWithFileSystemAccess(kind: 'schema' | 'config'): Promise<void
     return
   }
   markNewData()
-  if (kind === 'schema') loadSchema(parsed.value)
-  else {
-    exitProjectMode() // opening a lone config file leaves project-folder mode
-    loadConfigFromHandle(parsed.value, handle)
-  }
+  loadSchema(parsed.value)
 }
 
 async function readJsonHandle(handle: FileSystemFileHandleLike): Promise<unknown> {
@@ -1329,23 +1511,79 @@ async function listRootJsonFiles(dir: FileSystemDirectoryHandleLike): Promise<st
   return names.sort()
 }
 
-// Load the chosen file as the editable config, pulling any sibling .jigtor/
-// schema + history. With no schema, recommend generating one from the config.
-async function loadProjectConfig(dir: FileSystemDirectoryHandleLike, fileName: string): Promise<void> {
-  schemaRecommend.hidden = true
-  currentConfigName = fileName
-  configFileHandle = await dir.getFileHandle(fileName)
-  const schema = await readJigtorSchema(dir)
-  history = await readJigtorHistory(dir) // versioned snapshots from .jigtor/history.json.gz
-  renderHistoryTab()
-  markNewData()
+type ProjectConnectionMode = 'replace' | 'preserve-restored'
+
+function applyPreservedProjectState(
+  config: unknown,
+  schema: unknown | null,
+  baseline: unknown,
+  schemaBaseline: unknown | null,
+): void {
+  state.config = config
   state.schema = schema
-  loadConfigFromHandle(await readJsonHandle(configFileHandle), configFileHandle)
-  if (schema === null) recommendGenerateSchema(fileName)
-  await renderProjectTree()
+  state.original = clone(baseline)
+  state.originalSchema = clone(schemaBaseline)
+  baselineEstablished = true
+  hasLoadedConfig = true
+  if (state.schema !== null) buildForm()
+  else {
+    renderSchemaTab()
+    persist()
+    updateDirty()
+    renderConfigPreview()
+  }
+  renderTree()
+  renderTreeControls()
 }
 
-// Leaving project mode (import / drag-drop / example / single-file open): there
+// Both initial open and reconnect establish the same complete project context.
+// Reconnect differs only in preserving recovered config/schema edits.
+async function connectProjectConfig(
+  dir: FileSystemDirectoryHandleLike,
+  fileName: string,
+  mode: ProjectConnectionMode,
+): Promise<void> {
+  schemaRecommend.hidden = true
+  const handle = await dir.getFileHandle(fileName)
+  const fileText = await (await handle.getFile()).text()
+  const parsed = parseJsonFile(fileText)
+  if (!parsed.ok) throw new Error(parsed.error)
+  const projectSchema = await readJigtorSchema(dir)
+  const projectHistory = await readJigtorHistory(dir)
+
+  projectDirectoryHandle = dir
+  currentConfigName = fileName
+  configFileHandle = handle
+  hasConfirmedDownloadMode = false
+  history = mode === 'preserve-restored' ? mergeHistories(projectHistory, history) : projectHistory
+  persistHistory()
+  renderHistoryTab()
+
+  if (mode === 'preserve-restored') {
+    const target = prepareProjectReconnect(state.config, state.schema, fileText, projectSchema)
+    if (!target.ok) throw new Error(target.error)
+    applyPreservedProjectState(
+      target.config,
+      target.schema,
+      target.baseline,
+      target.schemaBaseline,
+    )
+  } else {
+    markNewData()
+    state.schema = projectSchema
+    state.originalSchema = clone(projectSchema)
+    loadConfigFromHandle(parsed.value, handle)
+  }
+  if (state.schema === null) recommendGenerateSchema(fileName)
+  await renderProjectTree()
+  updateConnectionAlert()
+  if (mode === 'preserve-restored') {
+    status.textContent = `Connected project ${dir.name}. Review the on-disk diff before saving.`
+    status.className = 'status ok'
+  }
+}
+
+// Leaving project mode (import / drag-drop / example): there
 // is no managed folder anymore, so hide the tree and forget the active file.
 function exitProjectMode(): void {
   projectDirectoryHandle = null
@@ -1354,24 +1592,30 @@ function exitProjectMode(): void {
   projectTree.hidden = true
 }
 
-// Compact file-explorer view of what jigtor manages in the opened folder: the
-// editable config (plus sibling JSON candidates you can switch to) and the
-// .jigtor/ artifacts. Enumeration reuses the same values() seam as the picker.
+// Compact file-explorer view of only what jigtor manages in the opened folder:
+// the editable config plus sibling JSON candidates you can switch to (unrelated
+// files are omitted) and the .jigtor/ artifacts. It doubles as the config picker
+// — with nothing selected yet, every JSON candidate is clickable to become the
+// config. Enumeration reuses the same values() seam as the folder picker.
 async function renderProjectTree(): Promise<void> {
   const dir = projectDirectoryHandle
   if (dir === null || typeof dir.values !== 'function') {
     projectTree.hidden = true
     return
   }
-  const files: string[] = []
-  const subdirs: string[] = []
+  const jsonFiles: string[] = []
+  let hasJigtor = false
   for await (const entry of dir.values()) {
-    ;(entry.kind === 'directory' ? subdirs : files).push(entry.name)
+    if (entry.kind === 'directory') {
+      if (entry.name === '.jigtor') hasJigtor = true
+    } else if (entry.name.toLowerCase().endsWith('.json')) {
+      jsonFiles.push(entry.name)
+    }
   }
-  const jigtorFiles = subdirs.includes('.jigtor') ? await listDirNames(dir, '.jigtor') : []
+  const jigtorFiles = hasJigtor ? await listDirNames(dir, '.jigtor') : []
 
   projectTreeBody.replaceChildren(
-    treeDirNode(dir.name, buildProjectChildren(dir, files.sort(), subdirs.sort(), jigtorFiles.sort())),
+    treeDirNode(dir.name, buildProjectChildren(dir, jsonFiles.sort(), hasJigtor, jigtorFiles.sort())),
   )
   projectTree.hidden = false
   projectTree.open = true
@@ -1394,37 +1638,37 @@ const JIGTOR_ROLES: Record<string, string> = {
   'history.json.gz': 'history',
 }
 
-// Root children: sibling directories (only .jigtor expanded) then files (JSON
-// files clickable to switch config; the active one badged, others muted).
+// Root children: the .jigtor/ artifacts (if present) then the JSON candidates.
+// Every non-active JSON is clickable — this is also how you pick the config when
+// none is chosen yet; the active one is badged "editing".
 function buildProjectChildren(
   dir: FileSystemDirectoryHandleLike,
-  files: string[],
-  subdirs: string[],
+  jsonFiles: string[],
+  hasJigtor: boolean,
   jigtorFiles: string[],
 ): HTMLUListElement {
   const ul = document.createElement('ul')
-  for (const name of subdirs) {
-    const children =
-      name === '.jigtor'
-        ? treeChildList(jigtorFiles.map((f) => treeFileNode(f, { badge: JIGTOR_ROLES[f], muted: true })))
-        : undefined
-    ul.appendChild(treeDirNode(name, children))
+  if (hasJigtor) {
+    ul.appendChild(
+      treeDirNode(
+        '.jigtor',
+        treeChildList(jigtorFiles.map((f) => treeFileNode(f, { badge: JIGTOR_ROLES[f], muted: true }))),
+      ),
+    )
   }
-  for (const name of files) {
-    const isJson = name.toLowerCase().endsWith('.json')
+  const picking = currentConfigName === null
+  for (const name of jsonFiles) {
     const isActive = name === currentConfigName
     ul.appendChild(
       treeFileNode(name, {
         active: isActive,
-        badge: isActive ? 'editing' : undefined,
-        muted: !isJson,
-        onClick:
-          isJson && !isActive
-            ? () => void loadProjectConfig(dir, name).catch((e) => {
-                status.textContent = `Could not open ${name}: ${String(e)}`
-                status.className = 'status error'
-              })
-            : undefined,
+        badge: isActive ? 'editing' : picking ? 'pick' : undefined,
+        onClick: !isActive
+          ? () => void connectProjectConfig(dir, name, 'replace').catch((e) => {
+              status.textContent = `Could not open ${name}: ${String(e)}`
+              status.className = 'status error'
+            })
+          : undefined,
       }),
     )
   }
@@ -1442,7 +1686,7 @@ function treeDirNode(name: string, children?: HTMLUListElement): HTMLLIElement {
   li.className = 'tree-dir'
   const label = document.createElement('span')
   label.className = 'tree-label'
-  label.textContent = `📁 ${name}`
+  label.append(svgIcon(ICON.folder), name)
   li.appendChild(label)
   if (children) li.appendChild(children)
   return li
@@ -1465,7 +1709,7 @@ function treeFileNode(
     label = document.createElement('span')
     label.className = 'tree-label'
   }
-  label.textContent = `📄 ${name}`
+  label.replaceChildren(svgIcon(ICON.file), document.createTextNode(name))
   li.appendChild(label)
   if (opts.badge) {
     const badge = document.createElement('span')
@@ -1478,72 +1722,74 @@ function treeFileNode(
 
 // More than one JSON in the folder: ask which is the config, pre-highlighting
 // config.json when present.
-function renderConfigCandidatePicker(dir: FileSystemDirectoryHandleLike, candidates: string[]): void {
+function chooseConfigCandidate(candidates: string[]): Promise<string | null> {
   const preferred = candidates.includes('config.json') ? 'config.json' : candidates[0]
-  projectPicker.innerHTML = ''
-  const label = document.createElement('span')
-  label.className = 'hint'
-  label.textContent = 'Which file is the config to edit?'
-  projectPicker.appendChild(label)
-  for (const name of candidates) {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = name === preferred ? 'filebtn primary' : 'filebtn'
-    btn.textContent = name
-    btn.addEventListener('click', () => {
-      projectPicker.hidden = true
-      void loadProjectConfig(dir, name).catch((e) => {
-        configFileHandle = null
-        status.textContent = `Could not open ${name}: ${String(e)}`
-        status.className = 'status error'
+  return new Promise((resolve) => {
+    const label = document.createElement('span')
+    label.className = 'hint'
+    label.textContent = 'Which file is the config to edit?'
+    const buttons = candidates.map((name) => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = name === preferred ? 'filebtn primary' : 'filebtn'
+      btn.textContent = name
+      btn.addEventListener('click', () => {
+        projectPicker.hidden = true
+        resolve(name)
       })
+      return btn
     })
-    projectPicker.appendChild(btn)
-  }
-  projectPicker.hidden = false
+    const cancel = document.createElement('button')
+    cancel.type = 'button'
+    cancel.textContent = 'Cancel'
+    cancel.addEventListener('click', () => {
+      projectPicker.hidden = true
+      resolve(null)
+    })
+    projectPicker.replaceChildren(label, ...buttons, cancel)
+    projectPicker.hidden = false
+  })
 }
 
-async function openProjectFolder(): Promise<void> {
-  if (typeof filePickerWindow.showDirectoryPicker !== 'function') {
+async function openProjectFolder(mode: ProjectConnectionMode): Promise<boolean> {
+  if (!canUseProjectAccess()) {
     status.textContent = 'Project-folder save requires a Chromium-based browser with directory access support.'
     status.className = 'status error'
-    return
+    return false
   }
   projectPicker.hidden = true
-  const dir = await filePickerWindow.showDirectoryPicker()
-  projectDirectoryHandle = dir
+  const dir = await filePickerWindow.showDirectoryPicker!()
   const candidates = await listRootJsonFiles(dir)
   const [first] = candidates
   if (first === undefined) {
-    projectDirectoryHandle = null
+    // A folder with no JSON isn't a project: clear any previously-shown tree so
+    // the stale explorer + edit state don't imply this empty folder is loaded.
+    exitProjectMode()
     status.textContent = 'No .json files in this folder. Add a config.json, or use "Other sources" to import one.'
     status.className = 'status error'
-    return
+    return false
   }
-  if (candidates.length === 1) {
-    await loadProjectConfig(dir, first)
-    return
-  }
-  renderConfigCandidatePicker(dir, candidates)
+  const fileName = candidates.length === 1 ? first : await chooseConfigCandidate(candidates)
+  if (fileName === null) return false
+  await connectProjectConfig(dir, fileName, mode)
+  return true
 }
 
 openProjectBtn.addEventListener('click', () => {
-  void openProjectFolder().catch((e) => {
-    projectDirectoryHandle = null
-    configFileHandle = null
-    status.textContent = `Could not open project folder: ${String(e)}`
-    status.className = 'status error'
-  })
+  const mode: ProjectConnectionMode =
+    hasLoadedConfig && projectDirectoryHandle === null ? 'preserve-restored' : 'replace'
+  void openProjectFolder(mode)
+    .then((connected) => {
+      if (connected && mode === 'preserve-restored') setReconnectGate(false)
+    })
+    .catch((e) => {
+      status.textContent = `Could not open project folder: ${String(e)}`
+      status.className = 'status error'
+    })
 })
 openSchemaBtn.addEventListener('click', () => {
-  void openWithFileSystemAccess('schema').catch((e) => {
+  void openSchemaWithFileSystemAccess().catch((e) => {
     status.textContent = `Could not open schema: ${String(e)}`
-    status.className = 'status error'
-  })
-})
-openConfigBtn.addEventListener('click', () => {
-  void openWithFileSystemAccess('config').catch((e) => {
-    status.textContent = `Could not open config: ${String(e)}`
     status.className = 'status error'
   })
 })
@@ -1566,10 +1812,63 @@ drop.addEventListener('dragleave', () => drop.classList.remove('dragover'))
 drop.addEventListener('drop', (e) => {
   e.preventDefault()
   drop.classList.remove('dragover')
-  for (const file of Array.from(e.dataTransfer?.files ?? [])) {
-    void file.text().then((t) => loadText(t, undefined, file.name))
-  }
+  const dt = e.dataTransfer
+  if (dt === null) return
+  // A DataTransferItem is only valid synchronously during the event, so kick off
+  // getAsFileSystemHandle() now and await the promises afterwards. A dropped
+  // directory opens as a project; plain files fall back to the JSON loader.
+  const handlePromises = Array.from(dt.items)
+    .filter((it) => it.kind === 'file')
+    .map((it) => {
+      const withHandle = it as DataTransferItem & {
+        getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>
+      }
+      return typeof withHandle.getAsFileSystemHandle === 'function'
+        ? withHandle.getAsFileSystemHandle()
+        : Promise.resolve<FileSystemHandle | null>(null)
+    })
+  const files = Array.from(dt.files)
+  void handleDrop(handlePromises, files).catch((err) => {
+    status.textContent = `Could not open dropped item: ${String(err)}`
+    status.className = 'status error'
+  })
 })
+
+async function handleDrop(
+  handlePromises: Promise<FileSystemHandle | null>[],
+  files: File[],
+): Promise<void> {
+  const handles = await Promise.all(handlePromises)
+  const dirHandle = handles.find((h): h is FileSystemDirectoryHandle => h?.kind === 'directory')
+  if (dirHandle !== undefined) {
+    await openDroppedProjectFolder(dirHandle as unknown as FileSystemDirectoryHandleLike)
+    return
+  }
+  for (const file of files) {
+    const text = await file.text()
+    loadText(text, undefined, file.name)
+  }
+}
+
+// Dropping a folder is equivalent to "Open project folder" — pick the config
+// (via the explorer/prompt when ambiguous) and connect it, preserving restored
+// edits when reconnecting after an auto-restore.
+async function openDroppedProjectFolder(dir: FileSystemDirectoryHandleLike): Promise<void> {
+  const candidates = await listRootJsonFiles(dir)
+  const [first] = candidates
+  if (first === undefined) {
+    exitProjectMode()
+    status.textContent = 'That folder has no .json files. Add a config.json, or drop a JSON file instead.'
+    status.className = 'status error'
+    return
+  }
+  const fileName = candidates.length === 1 ? first : await chooseConfigCandidate(candidates)
+  if (fileName === null) return
+  const mode: ProjectConnectionMode =
+    hasLoadedConfig && projectDirectoryHandle === null ? 'preserve-restored' : 'replace'
+  await connectProjectConfig(dir, fileName, mode)
+  if (mode === 'preserve-restored') setReconnectGate(false)
+}
 
 // ---- schema inference / adjustment ----
 function generateSchemaFromConfig(): boolean {
@@ -1627,7 +1926,9 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
     return
   }
   state.schema = s.value
+  state.originalSchema = clone(s.value)
   state.config = c.value
+  hasLoadedConfig = true
   markNewData() // fresh session -> re-baseline
   exitProjectMode() // the bundled example isn't a real folder
   buildForm()
@@ -1691,7 +1992,7 @@ async function saveConfig(): Promise<'direct' | 'download'> {
   // Keep the original file's key order on disk (new keys appended), independent
   // of how the value was edited. state.original holds the loaded/last-saved order.
   state.config = orderLike(state.config, state.original)
-  if (configFileHandle !== null && canUseFileSystemAccess()) {
+  if (projectDirectoryHandle !== null && configFileHandle !== null) {
     if (!(await ensureWritablePermission(configFileHandle))) {
       throw new Error('write permission was not granted')
     }
@@ -1702,36 +2003,8 @@ async function saveConfig(): Promise<'direct' | 'download'> {
   return 'download'
 }
 
-async function reconnectConfigFileForSave(): Promise<boolean> {
-  if (!canUseFileSystemAccess()) return false
-  const [handle] = await filePickerWindow.showOpenFilePicker!({
-    multiple: false,
-    types: [{ description: 'JSON files', accept: { 'application/json': ['.json'] } }],
-  })
-  if (!handle) return false
-
-  const target = prepareConfigReconnect(state.config, await (await handle.getFile()).text())
-  if (!target.ok) throw new Error(`selected file is not valid JSON: ${target.error}`)
-
-  // Keep every restored/in-session edit. Only the target handle and diff
-  // baseline change here; no bytes are written until the next explicit click.
-  configFileHandle = handle
-  exitProjectMode()
-  state.config = target.config
-  state.original = clone(target.baseline)
-  baselineEstablished = true
-
-  if (state.schema !== null && currentForm !== null) revalidate()
-  else {
-    persist()
-    updateDirty()
-    renderConfigPreview()
-  }
-  renderTree()
-  renderTreeControls()
-  status.textContent = `Connected ${handle.name}. Review the on-disk diff before saving.`
-  status.className = 'status ok'
-  return true
+async function reconnectProjectForSave(): Promise<boolean> {
+  return openProjectFolder('preserve-restored')
 }
 
 function markSaved(): void {
@@ -1741,19 +2014,42 @@ function markSaved(): void {
   persistHistory()
   renderHistoryTab()
   state.original = clone(state.config) // new baseline after a save
+  state.originalSchema = clone(state.schema)
   saveDialog.hidden = true
   updateDirty()
   revalidate() // clear per-field dirty decoration now that everything is saved
 }
 
+function reconnectFromSaveDialog(button: HTMLButtonElement): void {
+  button.disabled = true
+  void reconnectProjectForSave()
+    .then((connected) => {
+      if (connected) renderSaveDialog()
+      else button.disabled = false
+    })
+    .catch((e) => {
+      button.disabled = false
+      status.textContent = `Could not connect project folder: ${String(e)}`
+      status.className = 'status error'
+    })
+}
+
 function renderSaveDialog(): void {
   const changes = diffConfig(state.original, state.config)
+  const hasSchemaChanges = JSON.stringify(state.originalSchema) !== JSON.stringify(state.schema)
   const result = state.schema !== null ? validateConfig(state.schema, state.config) : null
 
   saveDialog.replaceChildren()
   const title = document.createElement('h3')
   title.textContent = 'Review changes'
   saveDialog.appendChild(title)
+
+  if (hasSchemaChanges) {
+    const schemaNote = document.createElement('p')
+    schemaNote.className = 'status'
+    schemaNote.textContent = 'Schema has unsaved changes and will be written to .jigtor/schema.json.'
+    saveDialog.appendChild(schemaNote)
+  }
 
   if (result && !result.valid) {
     const warn = document.createElement('p')
@@ -1779,30 +2075,21 @@ function renderSaveDialog(): void {
   actions.className = 'schema-actions'
   const saveAction = document.createElement('button')
   saveAction.type = 'button'
-  if (configFileHandle === null && canUseFileSystemAccess()) {
+  const targetMode = saveTargetMode()
+  if (targetMode === 'reconnect-required') {
     const reconnectHint = document.createElement('p')
     reconnectHint.className = 'hint'
-    reconnectHint.textContent =
-      'This restored or imported session has no save target. Connect a JSON file without discarding your current edits.'
+    reconnectHint.textContent = 'Reconnect the original folder to keep project files in sync.'
     saveDialog.appendChild(reconnectHint)
-    saveAction.textContent = 'Connect config.json…'
-    saveAction.addEventListener('click', () => {
-      saveAction.disabled = true
-      void reconnectConfigFileForSave()
-        .then((connected) => {
-          if (connected) renderSaveDialog()
-          else saveAction.disabled = false
-        })
-        .catch((e) => {
-          saveAction.disabled = false
-          status.textContent = `Could not connect config.json: ${String(e)}`
-          status.className = 'status error'
-        })
-    })
+    saveAction.replaceChildren(svgIcon(ICON.folder), document.createTextNode('Reconnect project folder…'))
+    saveAction.addEventListener('click', () => reconnectFromSaveDialog(saveAction))
   } else {
-    saveAction.textContent = configFileHandle
-      ? `Save ${configFileHandle.name}`
-      : 'Download config.json'
+    const directName = targetMode === 'direct' ? configFileHandle?.name : undefined
+    const isDirect = directName !== undefined
+    saveAction.replaceChildren(
+      svgIcon(isDirect ? ICON.save : ICON.download),
+      document.createTextNode(isDirect ? `Save ${directName}` : 'Download config.json'),
+    )
     saveAction.addEventListener('click', () => {
       void saveConfig()
         .then(async (mode) => {
@@ -1822,7 +2109,15 @@ function renderSaveDialog(): void {
   cancel.type = 'button'
   cancel.textContent = 'Cancel'
   cancel.addEventListener('click', () => (saveDialog.hidden = true))
-  actions.append(saveAction, cancel)
+  actions.appendChild(saveAction)
+  if (targetMode === 'download' && canUseProjectAccess()) {
+    const reconnectAction = document.createElement('button')
+    reconnectAction.type = 'button'
+    reconnectAction.replaceChildren(svgIcon(ICON.folder), document.createTextNode('Reconnect project instead…'))
+    reconnectAction.addEventListener('click', () => reconnectFromSaveDialog(reconnectAction))
+    actions.appendChild(reconnectAction)
+  }
+  actions.appendChild(cancel)
   saveDialog.appendChild(actions)
   saveDialog.hidden = false
 }
@@ -1839,10 +2134,13 @@ forgetBtn.addEventListener('click', () => {
     /* ignore */
   }
   forgetBtn.hidden = true
+  hasLoadedConfig = false
   state.schema = null
+  state.originalSchema = null
   state.config = {}
   markNewData()
   buildForm()
+  updateConnectionAlert()
   status.textContent = 'Cleared saved session.'
 })
 
@@ -1854,12 +2152,54 @@ window.addEventListener('beforeunload', (e) => {
   }
 })
 
+reconnectGateAction.addEventListener('click', () => {
+  reconnectGateAction.disabled = true
+  reconnectGateStatus.hidden = true
+  void reconnectProjectForSave()
+    .then((connected) => {
+      reconnectGateAction.disabled = false
+      if (connected) setReconnectGate(false)
+    })
+    .catch((e) => {
+      reconnectGateAction.disabled = false
+      reconnectGateStatus.textContent = `Could not connect project folder: ${String(e)}`
+      reconnectGateStatus.hidden = false
+    })
+})
+
+connectionReconnect.addEventListener('click', () => {
+  connectionReconnect.disabled = true
+  void reconnectProjectForSave()
+    .then(() => {
+      connectionReconnect.disabled = false
+    })
+    .catch((e) => {
+      connectionReconnect.disabled = false
+      status.textContent = `Could not connect project folder: ${String(e)}`
+      status.className = 'status error'
+    })
+})
+
+downloadModeAction.addEventListener('click', () => {
+  hasConfirmedDownloadMode = true
+  setReconnectGate(false)
+  status.textContent = 'Download mode enabled. Save will download config.json.'
+  status.className = 'status'
+})
+
 // ---- startup: restore the last session if present ----
 const restored = restoreSaved()
 buildForm()
 renderHistoryTab() // show persisted save history from previous sessions
+setEditMode('tree') // default the Edit tab to the Tree editor
 if (restored) {
   forgetBtn.hidden = false
-  status.textContent = 'Restored your last session — load a file to start fresh.'
+  reconnectGateAction.disabled = !canUseProjectAccess()
+  reconnectGateStatus.textContent = canUseProjectAccess()
+    ? ''
+    : 'Folder access is unavailable. Use Download mode.'
+  reconnectGateStatus.hidden = canUseProjectAccess()
+  status.textContent = 'Session restored. Reconnect the project before editing.'
   status.className = 'status'
+  setReconnectGate(true)
 }
