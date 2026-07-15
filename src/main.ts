@@ -56,6 +56,9 @@ type FileSystemDirectoryHandleLike = {
   name: string
   getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FileSystemFileHandleLike>
   getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<FileSystemDirectoryHandleLike>
+  // Native handles (and the Tauri shim) enumerate entries via values(); used to
+  // list a folder's JSON files as config candidates. Read only name/kind here.
+  values?: () => AsyncIterableIterator<{ name: string; kind: 'file' | 'directory' }>
   queryPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
   requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>
 }
@@ -154,6 +157,7 @@ app.innerHTML = `
         <button id="forget" class="filebtn" type="button" hidden>Forget saved</button>
       </div>
     </details>
+    <div id="project-picker" class="project-picker" hidden></div>
   </section>
 
   <nav class="tabs">
@@ -164,6 +168,7 @@ app.innerHTML = `
 
   <section id="panel-edit" class="panel">
     <p id="status" class="status"></p>
+    <div id="schema-recommend" class="recommend" hidden></div>
     <main id="form-host"></main>
     <details id="config-json" class="config-json" open>
       <summary>Live JSON preview</summary>
@@ -213,6 +218,8 @@ const saveBtn = app.querySelector<HTMLButtonElement>('#save')!
 const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
 const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
+const projectPicker = app.querySelector<HTMLDivElement>('#project-picker')!
+const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
 const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
 const openConfigBtn = app.querySelector<HTMLButtonElement>('#open-config')!
 const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
@@ -403,6 +410,7 @@ function buildForm(): void {
 
 function loadSchema(value: unknown): void {
   state.schema = value
+  schemaRecommend.hidden = true // a schema now exists — drop the recommendation
   buildForm()
 }
 
@@ -671,25 +679,82 @@ async function readJigtorHistory(dir: FileSystemDirectoryHandleLike): Promise<Sa
   }
 }
 
-async function openProjectFolder(): Promise<void> {
-  if (typeof filePickerWindow.showDirectoryPicker !== 'function') {
-    status.textContent = 'Project-folder save requires a Chromium-based browser with directory access support.'
-    status.className = 'status error'
-    return
+// Root-level JSON files, the candidates a user might want to edit. Directories
+// (including `.jigtor/`) are skipped so only real config files are offered.
+async function listRootJsonFiles(dir: FileSystemDirectoryHandleLike): Promise<string[]> {
+  if (typeof dir.values !== 'function') return []
+  const names: string[] = []
+  for await (const entry of dir.values()) {
+    if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.json')) {
+      names.push(entry.name)
+    }
   }
-  const dir = await filePickerWindow.showDirectoryPicker()
-  projectDirectoryHandle = dir
-  configFileHandle = await dir.getFileHandle('config.json')
+  return names.sort()
+}
+
+// Load the chosen file as the editable config, pulling any sibling .jigtor/
+// schema + history. With no schema, recommend generating one from the config.
+async function loadProjectConfig(dir: FileSystemDirectoryHandleLike, fileName: string): Promise<void> {
+  schemaRecommend.hidden = true
+  configFileHandle = await dir.getFileHandle(fileName)
   const schema = await readJigtorSchema(dir)
   history = await readJigtorHistory(dir) // versioned snapshots from .jigtor/history.json.gz
   renderHistoryTab()
   markNewData()
   state.schema = schema
   loadConfigFromHandle(await readJsonHandle(configFileHandle), configFileHandle)
-  if (schema === null) {
-    status.textContent = 'Loaded config.json. Generate a schema from config to start editing.'
-    status.className = 'status'
+  if (schema === null) recommendGenerateSchema(fileName)
+}
+
+// More than one JSON in the folder: ask which is the config, pre-highlighting
+// config.json when present.
+function renderConfigCandidatePicker(dir: FileSystemDirectoryHandleLike, candidates: string[]): void {
+  const preferred = candidates.includes('config.json') ? 'config.json' : candidates[0]
+  projectPicker.innerHTML = ''
+  const label = document.createElement('span')
+  label.className = 'hint'
+  label.textContent = 'Which file is the config to edit?'
+  projectPicker.appendChild(label)
+  for (const name of candidates) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = name === preferred ? 'filebtn primary' : 'filebtn'
+    btn.textContent = name
+    btn.addEventListener('click', () => {
+      projectPicker.hidden = true
+      void loadProjectConfig(dir, name).catch((e) => {
+        configFileHandle = null
+        status.textContent = `Could not open ${name}: ${String(e)}`
+        status.className = 'status error'
+      })
+    })
+    projectPicker.appendChild(btn)
   }
+  projectPicker.hidden = false
+}
+
+async function openProjectFolder(): Promise<void> {
+  if (typeof filePickerWindow.showDirectoryPicker !== 'function') {
+    status.textContent = 'Project-folder save requires a Chromium-based browser with directory access support.'
+    status.className = 'status error'
+    return
+  }
+  projectPicker.hidden = true
+  const dir = await filePickerWindow.showDirectoryPicker()
+  projectDirectoryHandle = dir
+  const candidates = await listRootJsonFiles(dir)
+  const [first] = candidates
+  if (first === undefined) {
+    projectDirectoryHandle = null
+    status.textContent = 'No .json files in this folder. Add a config.json, or use "Other sources" to import one.'
+    status.className = 'status error'
+    return
+  }
+  if (candidates.length === 1) {
+    await loadProjectConfig(dir, first)
+    return
+  }
+  renderConfigCandidatePicker(dir, candidates)
 }
 
 openProjectBtn.addEventListener('click', () => {
@@ -737,15 +802,40 @@ drop.addEventListener('drop', (e) => {
 })
 
 // ---- schema inference / adjustment ----
-app.querySelector<HTMLButtonElement>('#infer-schema')!.addEventListener('click', () => {
+function generateSchemaFromConfig(): boolean {
   if (typeof state.config !== 'object' || state.config === null || Array.isArray(state.config)) {
     status.textContent = 'Load an object config first to generate a schema.'
     status.className = 'status error'
-    return
+    return false
   }
   loadSchema(inferSchema(state.config))
   schemaMsg.textContent = 'generated from config — adjust as needed'
   ;(app.querySelector('.tab[data-tab="schema"]') as HTMLButtonElement).click()
+  return true
+}
+
+// Shown after opening a config that has no .jigtor/schema.json: without a schema
+// there are no typed controls, so generating one is the recommended next step.
+function recommendGenerateSchema(fileName: string): void {
+  status.textContent = `Loaded ${fileName}. No schema found for this project.`
+  status.className = 'status'
+  projectPicker.hidden = true
+  schemaRecommend.innerHTML = ''
+  const msg = document.createElement('span')
+  msg.textContent = 'No schema yet — generate one from your config to get typed, validated fields.'
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'filebtn primary'
+  btn.textContent = 'Generate schema from config'
+  btn.addEventListener('click', () => {
+    if (generateSchemaFromConfig()) schemaRecommend.hidden = true
+  })
+  schemaRecommend.append(msg, btn)
+  schemaRecommend.hidden = false
+}
+
+app.querySelector<HTMLButtonElement>('#infer-schema')!.addEventListener('click', () => {
+  generateSchemaFromConfig()
 })
 
 app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click', () => {

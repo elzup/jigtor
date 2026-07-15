@@ -28,6 +28,8 @@ const fsWrite = (path: string, contents: number[]) =>
   invoke<void>('fs_write', { path, contents })
 const fsExists = (path: string) => invoke<boolean>('fs_exists', { path })
 const fsMkdir = (path: string) => invoke<void>('fs_mkdir', { path })
+const fsList = (path: string) =>
+  invoke<Array<{ name: string; isDir: boolean }>>('fs_list', { path })
 
 async function toBytes(data: string | BufferSource | Blob): Promise<Uint8Array> {
   if (typeof data === 'string') return new TextEncoder().encode(data)
@@ -91,6 +93,16 @@ function makeDirHandle(path: string) {
       else if (!(await fsExists(full)))
         throw new Error(`NotFoundError: ${full}`)
       return makeDirHandle(full)
+    },
+    // Mirrors FileSystemDirectoryHandle.values() so folder enumeration (JSON
+    // config candidates) works the same on desktop as in the browser.
+    async *values(): AsyncIterableIterator<{
+      name: string
+      kind: 'file' | 'directory'
+    }> {
+      for (const entry of await fsList(path)) {
+        yield { name: entry.name, kind: entry.isDir ? 'directory' : 'file' }
+      }
     },
     async queryPermission(): Promise<PermissionState> {
       return 'granted'
