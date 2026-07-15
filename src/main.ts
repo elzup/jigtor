@@ -9,6 +9,7 @@ import { renderForm, refreshErrors, refreshFieldMeta } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
 import { diffConfig, type Change } from './core/diffConfig'
+import { lineDiff } from './core/lineDiff'
 import {
   recordSnapshot,
   fieldHistory,
@@ -176,7 +177,7 @@ app.innerHTML = `
     <div id="schema-recommend" class="recommend" hidden></div>
     <main id="form-host"></main>
     <details id="config-json" class="config-json" open>
-      <summary>Live JSON preview</summary>
+      <summary>Live diff — whole file (vs last load / save)</summary>
       <pre id="config-preview"></pre>
     </details>
     <footer class="save-bar">
@@ -255,11 +256,25 @@ function updateDirty(): void {
   dirtyNote.textContent = isDirty ? `${count} unsaved change(s) — not saved yet` : ''
 }
 
-// Live, provisional JSON preview of the config as it is edited (user request:
-// see the actual "key": "value" update in real time, before saving).
+// Live whole-file diff of the config as it is edited (user request): the entire
+// file is shown, with every line since the loaded/saved baseline marked as
+// added / removed / unchanged so pending edits are visible in place before save.
 function renderConfigPreview(): void {
-  configPreview.textContent =
-    state.schema === null ? '' : JSON.stringify(state.config, null, 2)
+  if (state.schema === null) {
+    configPreview.replaceChildren()
+    return
+  }
+  const before = (JSON.stringify(state.original, null, 2) ?? 'null').split('\n')
+  const after = (JSON.stringify(state.config, null, 2) ?? 'null').split('\n')
+  const frag = document.createDocumentFragment()
+  for (const row of lineDiff(before, after)) {
+    const line = document.createElement('span')
+    line.className = `diff-line diff-${row.kind}`
+    const mark = row.kind === 'add' ? '+ ' : row.kind === 'del' ? '- ' : '  '
+    line.textContent = mark + row.text
+    frag.appendChild(line)
+  }
+  configPreview.replaceChildren(frag)
 }
 
 // spec:history UI — group saved changes by field (dotted path), newest field

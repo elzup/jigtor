@@ -779,6 +779,22 @@ input.toggle:checked::after {
   max-height: 40vh;
   margin-top: 0.5rem;
 }
+/* whole-file live diff: unchanged lines as context, edits marked in place */
+.diff-line {
+  display: block;
+  white-space: pre;
+}
+.diff-line.diff-same {
+  color: var(--text);
+}
+.diff-line.diff-add {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.diff-line.diff-del {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
 
 /* ---- history (per field) ---- */
 .history-field {
