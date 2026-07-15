@@ -4,7 +4,12 @@
 import './style.css'
 import { parseSchema } from './core/parseSchema'
 import { validateConfig } from './core/validateConfig'
-import { parseJsonFile, serializeConfig, classifyFile } from './core/fileIo'
+import {
+  parseJsonFile,
+  serializeConfig,
+  classifyFile,
+  prepareConfigReconnect,
+} from './core/fileIo'
 import { renderForm, refreshErrors, refreshFieldMeta } from './core/renderForm'
 import { inferSchema } from './core/inferSchema'
 import { applyDefaults } from './core/applyDefaults'
@@ -304,7 +309,19 @@ function pushUndo(prev: unknown): void {
   undoStack.push(prev)
   if (undoStack.length > UNDO_LIMIT) undoStack.shift()
   redoStack.length = 0 // a new edit invalidates the redo branch
+  lastEditPath = null // a discrete edit ends any in-progress coalescing burst
   updateUndoButtons()
+}
+
+// Coalesce consecutive edits to the SAME field into one undo entry, so a slider
+// drag (Block form fires onChange per input) or a run of keystrokes undoes to the
+// value from before the burst — i.e. "on release", not per intermediate change.
+let lastEditPath: string | null = null
+function pushUndoCoalesced(path: FieldPath): void {
+  const key = JSON.stringify(path)
+  if (key === lastEditPath) return // same field, same burst — keep the pre-burst snapshot
+  pushUndo(state.config)
+  lastEditPath = key // pushUndo reset this to null; mark the burst's field
 }
 
 // Re-render every view from the current state.config after undo/redo.
@@ -323,6 +340,7 @@ function doUndo(): void {
   if (undoStack.length === 0) return
   redoStack.push(state.config)
   state.config = undoStack.pop()
+  lastEditPath = null
   updateUndoButtons()
   refreshAllViews()
 }
@@ -330,6 +348,7 @@ function doRedo(): void {
   if (redoStack.length === 0) return
   undoStack.push(state.config)
   state.config = redoStack.pop()
+  lastEditPath = null
   updateUndoButtons()
   refreshAllViews()
 }
@@ -547,7 +566,7 @@ function buildForm(): void {
   }
   state.config = applyDefaults(parsed.root as FieldNode, state.config)
   currentForm = renderForm(parsed.root, state.config, [], (path, value) => {
-    pushUndo(state.config)
+    pushUndoCoalesced(path) // slider drag / keystroke burst -> one undo entry
     state.config = setAt(state.config, path, value)
     revalidate()
   })
@@ -1683,6 +1702,38 @@ async function saveConfig(): Promise<'direct' | 'download'> {
   return 'download'
 }
 
+async function reconnectConfigFileForSave(): Promise<boolean> {
+  if (!canUseFileSystemAccess()) return false
+  const [handle] = await filePickerWindow.showOpenFilePicker!({
+    multiple: false,
+    types: [{ description: 'JSON files', accept: { 'application/json': ['.json'] } }],
+  })
+  if (!handle) return false
+
+  const target = prepareConfigReconnect(state.config, await (await handle.getFile()).text())
+  if (!target.ok) throw new Error(`selected file is not valid JSON: ${target.error}`)
+
+  // Keep every restored/in-session edit. Only the target handle and diff
+  // baseline change here; no bytes are written until the next explicit click.
+  configFileHandle = handle
+  exitProjectMode()
+  state.config = target.config
+  state.original = clone(target.baseline)
+  baselineEstablished = true
+
+  if (state.schema !== null && currentForm !== null) revalidate()
+  else {
+    persist()
+    updateDirty()
+    renderConfigPreview()
+  }
+  renderTree()
+  renderTreeControls()
+  status.textContent = `Connected ${handle.name}. Review the on-disk diff before saving.`
+  status.className = 'status ok'
+  return true
+}
+
 function markSaved(): void {
   // spec:history (REQ-H01): append a full-config snapshot of this saved version,
   // then advance the baseline.
@@ -1695,7 +1746,7 @@ function markSaved(): void {
   revalidate() // clear per-field dirty decoration now that everything is saved
 }
 
-app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
+function renderSaveDialog(): void {
   const changes = diffConfig(state.original, state.config)
   const result = state.schema !== null ? validateConfig(state.schema, state.config) : null
 
@@ -1726,30 +1777,58 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
 
   const actions = document.createElement('div')
   actions.className = 'schema-actions'
-  const dl = document.createElement('button')
-  dl.type = 'button'
-  dl.textContent = configFileHandle ? `Save ${configFileHandle.name}` : 'Download config.json'
-  dl.addEventListener('click', () => {
-    void saveConfig()
-      .then(async (mode) => {
-        markSaved()
-        await writeProjectMetadata()
-        await renderProjectTree() // .jigtor/ artifacts may have just been created
-        status.textContent = mode === 'direct' ? 'Saved config.json.' : 'Downloaded config.json.'
-        status.className = 'status ok'
-      })
-      .catch((e) => {
-        status.textContent = `Could not save config.json: ${String(e)}`
-        status.className = 'status error'
-      })
-  })
+  const saveAction = document.createElement('button')
+  saveAction.type = 'button'
+  if (configFileHandle === null && canUseFileSystemAccess()) {
+    const reconnectHint = document.createElement('p')
+    reconnectHint.className = 'hint'
+    reconnectHint.textContent =
+      'This restored or imported session has no save target. Connect a JSON file without discarding your current edits.'
+    saveDialog.appendChild(reconnectHint)
+    saveAction.textContent = 'Connect config.json…'
+    saveAction.addEventListener('click', () => {
+      saveAction.disabled = true
+      void reconnectConfigFileForSave()
+        .then((connected) => {
+          if (connected) renderSaveDialog()
+          else saveAction.disabled = false
+        })
+        .catch((e) => {
+          saveAction.disabled = false
+          status.textContent = `Could not connect config.json: ${String(e)}`
+          status.className = 'status error'
+        })
+    })
+  } else {
+    saveAction.textContent = configFileHandle
+      ? `Save ${configFileHandle.name}`
+      : 'Download config.json'
+    saveAction.addEventListener('click', () => {
+      void saveConfig()
+        .then(async (mode) => {
+          markSaved()
+          await writeProjectMetadata()
+          await renderProjectTree() // .jigtor/ artifacts may have just been created
+          status.textContent = mode === 'direct' ? 'Saved config.json.' : 'Downloaded config.json.'
+          status.className = 'status ok'
+        })
+        .catch((e) => {
+          status.textContent = `Could not save config.json: ${String(e)}`
+          status.className = 'status error'
+        })
+    })
+  }
   const cancel = document.createElement('button')
   cancel.type = 'button'
   cancel.textContent = 'Cancel'
   cancel.addEventListener('click', () => (saveDialog.hidden = true))
-  actions.append(dl, cancel)
+  actions.append(saveAction, cancel)
   saveDialog.appendChild(actions)
   saveDialog.hidden = false
+}
+
+app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
+  renderSaveDialog()
 })
 
 // ---- session persistence: quick recall of the last loaded/edited file ----
