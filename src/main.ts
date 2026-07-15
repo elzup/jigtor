@@ -188,6 +188,7 @@ app.innerHTML = `
     </details>
     <p id="status" class="status"></p>
     <div id="schema-recommend" class="recommend" hidden></div>
+    <label class="compact-toggle"><input type="checkbox" id="compact-mode"> Compact fields</label>
     <main id="form-host"></main>
     <details id="config-json" class="config-json" open>
       <summary>Live diff — whole file (vs last load / save)</summary>
@@ -244,6 +245,29 @@ const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
 const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
 const treeHost = app.querySelector<HTMLDivElement>('#tree-host')!
+const compactToggle = app.querySelector<HTMLInputElement>('#compact-mode')!
+
+// Compact field layout (user request): dotted path + description on a small top
+// line, label + input below. Pure CSS re-flow of the existing form DOM; the
+// preference is remembered across sessions.
+const COMPACT_KEY = 'jigtor:compact'
+function applyCompact(on: boolean): void {
+  formHost.classList.toggle('compact', on)
+  try {
+    localStorage.setItem(COMPACT_KEY, on ? '1' : '0')
+  } catch {
+    /* non-fatal */
+  }
+}
+compactToggle.checked = (() => {
+  try {
+    return localStorage.getItem(COMPACT_KEY) === '1'
+  } catch {
+    return false
+  }
+})()
+applyCompact(compactToggle.checked)
+compactToggle.addEventListener('change', () => applyCompact(compactToggle.checked))
 const projectPicker = app.querySelector<HTMLDivElement>('#project-picker')!
 const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
 const projectTree = app.querySelector<HTMLDetailsElement>('#project-tree')!

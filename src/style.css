@@ -796,6 +796,72 @@ input.toggle:checked::after {
   background: color-mix(in srgb, var(--err) 14%, transparent);
 }
 
+/* ---- compact field layout (Edit tab) ---- */
+.compact-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0.5rem;
+  cursor: pointer;
+}
+/* ".path (description)" small on top, "name [input]" below — a CSS re-flow of
+   the existing form DOM (label uses display:contents so its name/path become
+   grid items). */
+.compact .field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  grid-template-areas:
+    'path desc'
+    'name input'
+    'meta meta'
+    'err  err';
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 1px;
+  margin: 0.1rem 0;
+  padding: 0.25rem 0;
+}
+.compact .field label {
+  display: contents;
+}
+.compact .field > * {
+  grid-area: input;
+  min-width: 0;
+}
+.compact .field .field-name {
+  grid-area: name;
+  font-size: 0.85rem;
+}
+.compact .field .field-path {
+  grid-area: path;
+  font-size: 0.7rem;
+}
+.compact .field .field-description {
+  grid-area: desc;
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.compact .field .field-description::before {
+  content: '(';
+}
+.compact .field .field-description::after {
+  content: ')';
+}
+.compact .field .field-meta {
+  grid-area: meta;
+}
+.compact .field .field-errbox {
+  grid-area: err;
+}
+.compact .field input,
+.compact .field select,
+.compact .field textarea {
+  padding: 0.12rem 0.35rem;
+}
+
 /* ---- Tree (real edit) mode ---- */
 .tree-edit {
   font-size: 0.85rem;
