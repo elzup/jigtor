@@ -24,6 +24,7 @@ import {
   type JsonPath,
 } from './core/jsonEdit'
 import { resolveSchemaAt } from './core/schemaAt'
+import { orderLike } from './core/orderLike'
 import {
   recordSnapshot,
   fieldHistory,
@@ -1668,6 +1669,9 @@ async function writeProjectMetadata(): Promise<void> {
 }
 
 async function saveConfig(): Promise<'direct' | 'download'> {
+  // Keep the original file's key order on disk (new keys appended), independent
+  // of how the value was edited. state.original holds the loaded/last-saved order.
+  state.config = orderLike(state.config, state.original)
   if (configFileHandle !== null && canUseFileSystemAccess()) {
     if (!(await ensureWritablePermission(configFileHandle))) {
       throw new Error('write permission was not granted')
