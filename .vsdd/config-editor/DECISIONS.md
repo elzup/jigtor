@@ -27,8 +27,9 @@ in the usage guide.
 ## Open
 
 - **Schema-external fields** — fields present in `config.json` but absent from the
-  schema. Today the renderer keeps them as a read-only **`unknown` placeholder**
-  (preserved on save, never dropped) and validation ignores them. Still open:
-  whether to also **log them to the console** and/or surface a visible "extra
-  fields kept" notice, vs the current silent-preserve. Leaning: preserve + a small
-  non-blocking notice; no console spam.
+  schema. Preserved on save, never dropped; validation ignores them. RESOLVED for
+  the **Tree editor** (Cycle 7): the leaning "small non-blocking notice" is now the
+  **"not in schema" badge** on the top-most external key (array items skipped, no
+  double-badging of descendants; no console spam). The **Block form** still keeps
+  them as a silent read-only `unknown` placeholder — surfacing a Block-side notice
+  there is the only remaining slice of this item.

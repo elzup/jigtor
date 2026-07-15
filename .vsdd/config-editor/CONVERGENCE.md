@@ -1,6 +1,40 @@
 # VCSDD Convergence Record — config-editor (jigtor V1 core)
 
-**Status:** CONVERGED (2026-07-14) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX) + 2 (schema editor) + 2 (UX pack) + 1 (subforms)
+**Status:** CONVERGED (2026-07-14) · mode: Lean · Adversary rounds: 4 (core) + 2 (feature pack) + 3 (UX) + 2 (schema editor) + 2 (UX pack) + 1 (subforms) · + Cycle 7 UX/e2e (user-driven, no adversary)
+
+## Cycle 7 — UX polish + e2e safety net
+
+User-driven UX iteration (not a full adversary cycle). As-built changes to the
+DOM shell plus a first end-to-end layer. No numbered core REQ changed; 181 unit
+tests stayed green throughout.
+
+- **File management relocated**: the project-files explorer + reconnect/connection
+  alerts moved out of the tab-scoped Edit panel into an always-visible management
+  column beside the drop zone (they previously vanished on the Schema/History
+  tabs). The explorer lists only JSON candidates + `.jigtor/` artifacts.
+- **Config candidate selection is now in the explorer** (supersedes the button-row
+  modal): a folder with several JSONs shows them as clickable "pick" entries;
+  selection carries the connection mode so a multi-candidate reconnect still
+  preserves restored edits. Directory drag-and-drop opens a folder as a project.
+  Still satisfies REQ-RD02/04 (reads `config.json`, saves back, generate-on-missing).
+- **Live diff is always shown** (collapse removed); the **Review changes dialog no
+  longer repeats the whole-file diff** — it shows a change-count summary + validity
+  (supersedes the Cycle-3 "dialog shows the diff" note below).
+- **Tree mode** surfaces schema-external keys with a non-blocking "not in schema"
+  badge (see DECISIONS — resolves the open lean), color-coded type chips, lazy
+  per-field history, column-aligned controls; flat inline-SVG icons replace emoji.
+- **Compact fields** reflow via grid (bounded input track), not padding.
+- **Demo** reworked: `key`→`name`, dropped the confusing `max`, added `ratio`
+  (number) + `retries` (integer) slider samples.
+
+**e2e**: Playwright suite (`e2e/*.spec.ts`, `nr test:e2e`) drives the whole
+`main.ts` shell in real Chromium — the layer unit tests never touch. 12 tests over
+8 specs: load-example, block edit → live diff + count, compact toggle, tree
+schema-external badge + undo, type chips, schema sample + tab switching, project
+open → explorer candidate pick → switch (via a `showDirectoryPicker` FS shim),
+save flow (lean dialog + direct write), Block↔Tree edit persistence, History after
+two saves. Assertions are user-visible (role/text/id) so they can guard a future
+React rewrite. 181 unit + 12 e2e green.
 
 ## Cycle 6 — object-array subforms (recursive, collapsible)
 
