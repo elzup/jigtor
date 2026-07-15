@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="jigtor — C-clamp gripping a JSON document">
-  <rect width="256" height="256" rx="52" fill="#2f6bff"/>
-  <rect x="92" y="52" width="112" height="152" rx="12" fill="#ffffff"/>
-  <rect x="112" y="80" width="56" height="10" rx="3" fill="#94a3b8"/>
+  <rect width="256" height="256" rx="52" fill="#111827"/>
+  <rect x="92" y="52" width="112" height="152" rx="12" fill="#f8fafc"/>
+  <rect x="112" y="80" width="56" height="10" rx="3" fill="#64748b"/>
   <rect x="112" y="104" width="72" height="10" rx="3" fill="#cbd5e1"/>
   <rect x="112" y="128" width="48" height="10" rx="3" fill="#cbd5e1"/>
   <rect x="112" y="152" width="64" height="10" rx="3" fill="#cbd5e1"/>
-  <path d="M92 62H62V194H92V172H78V84H92Z" fill="#0f172a"/>
-  <rect x="40" y="121" width="34" height="14" rx="4" fill="#0f172a"/>
-  <circle cx="40" cy="128" r="15" fill="#f59e0b"/>
+  <path d="M92 62H62V194H92V172H78V84H92Z" fill="#60a5fa"/>
+  <rect x="40" y="121" width="34" height="14" rx="4" fill="#60a5fa"/>
+  <circle cx="40" cy="128" r="15" fill="#a78bfa"/>
 </svg>
