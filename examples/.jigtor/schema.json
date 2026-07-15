@@ -1,19 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["key", "max"],
+  "required": ["name"],
   "properties": {
-    "max": {
-      "type": "integer",
-      "title": "Max connections",
-      "description": "Upper bound for concurrent device connections.",
-      "minimum": 1,
-      "maximum": 100,
-      "default": 20
-    },
-    "key": {
+    "name": {
       "type": "string",
-      "description": "Device API key.",
+      "title": "Device name",
+      "description": "Unique device identifier (alphanumeric).",
       "minLength": 3,
       "pattern": "^[a-zA-Z0-9]+$"
     },
@@ -21,6 +14,22 @@
       "type": "string",
       "enum": ["idle", "active", "sleep"],
       "default": "idle"
+    },
+    "ratio": {
+      "type": "number",
+      "title": "Sample ratio",
+      "description": "Fraction of events to sample (0–1).",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.5
+    },
+    "retries": {
+      "type": "integer",
+      "title": "Retry limit",
+      "description": "Max retry attempts before giving up.",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 3
     },
     "telemetry": {
       "type": "object",

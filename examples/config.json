@@ -1,7 +1,8 @@
 {
-  "max": 20,
-  "key": "abc123",
+  "name": "abc123",
   "mode": "sleep",
+  "ratio": 0.75,
+  "retries": 3,
   "telemetry": {
     "enabled": true,
     "intervalSec": 5

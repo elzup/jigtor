@@ -125,10 +125,10 @@ describe('integration: example config + schema', () => {
   })
 
   test('a constraint violation is caught and surfaced on the right field', () => {
-    const broken = setAt(config, ['max'], 999) // exceeds maximum:100
+    const broken = setAt(config, ['mode'], 'nope') // not in enum [idle, active, sleep]
     const result = validateConfig(schema, broken)
     expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.path.join('/') === 'max')).toBe(true)
+    expect(result.errors.some((e) => e.path.join('/') === 'mode')).toBe(true)
   })
 
   test('renders a form and an edit round-trips through serialize', () => {
@@ -140,14 +140,14 @@ describe('integration: example config + schema', () => {
       edited = setAt(edited, path, v)
     })
     // form has controls for the top-level fields
-    expect(form.querySelector('[data-path="key"]')).toBeTruthy()
+    expect(form.querySelector('[data-path="name"]')).toBeTruthy()
     expect(form.querySelector('[data-path="mode"]')).toBeTruthy()
 
-    // simulate editing `key`
-    const keyInput = form.querySelector('input[data-path="key"]') as HTMLInputElement
-    keyInput.value = 'newKey42'
-    keyInput.dispatchEvent(new Event('input', { bubbles: true }))
-    expect((edited as Record<string, unknown>)['key']).toBe('newKey42')
+    // simulate editing `name`
+    const nameInput = form.querySelector('input[data-path="name"]') as HTMLInputElement
+    nameInput.value = 'newName42'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    expect((edited as Record<string, unknown>)['name']).toBe('newName42')
 
     // serialized output is valid JSON and still validates
     const out = serializeConfig(edited)
