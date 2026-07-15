@@ -793,6 +793,14 @@ input.toggle:checked::after {
 .compact-toggle {
   margin: 0;
 }
+.undo-redo {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.undo-redo .filebtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 /* Tree mode: editor on the left, controls panel on the right (stacks on narrow) */
 .tree-cols {

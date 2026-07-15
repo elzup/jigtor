@@ -194,6 +194,10 @@ app.innerHTML = `
         <button id="mode-block-btn" class="mode active" data-mode="block" type="button">Block</button>
         <button id="mode-tree-btn" class="mode" data-mode="tree" type="button">Tree</button>
       </div>
+      <span class="undo-redo">
+        <button id="undo" class="filebtn" type="button" title="Undo (Ctrl/Cmd+Z)" disabled>↶ Undo</button>
+        <button id="redo" class="filebtn" type="button" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷ Redo</button>
+      </span>
       <label class="compact-toggle"><input type="checkbox" id="compact-mode"> Compact fields</label>
     </div>
     <div id="mode-block">
@@ -279,6 +283,63 @@ function setEditMode(mode: 'block' | 'tree'): void {
 }
 app.querySelectorAll<HTMLButtonElement>('.mode-switch .mode').forEach((btn) => {
   btn.addEventListener('click', () => setEditMode(btn.dataset.mode === 'tree' ? 'tree' : 'block'))
+})
+
+// ---- undo / redo (config edits across both modes) ----
+const undoBtn = app.querySelector<HTMLButtonElement>('#undo')!
+const redoBtn = app.querySelector<HTMLButtonElement>('#redo')!
+const undoStack: unknown[] = []
+const redoStack: unknown[] = []
+const UNDO_LIMIT = 200
+
+function updateUndoButtons(): void {
+  undoBtn.disabled = undoStack.length === 0
+  redoBtn.disabled = redoStack.length === 0
+}
+
+// Record the pre-edit config so the change can be undone. Called by every edit
+// path (Block form onChange, Tree edits) right before state.config is replaced.
+function pushUndo(prev: unknown): void {
+  undoStack.push(prev)
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift()
+  redoStack.length = 0 // a new edit invalidates the redo branch
+  updateUndoButtons()
+}
+
+// Re-render every view from the current state.config after undo/redo.
+function refreshAllViews(): void {
+  if (state.schema !== null) buildForm() // rebuilds block form + preview + validate
+  else {
+    renderConfigPreview()
+    updateDirty()
+    persist()
+  }
+  renderTree()
+  renderTreeControls()
+}
+
+function doUndo(): void {
+  if (undoStack.length === 0) return
+  redoStack.push(state.config)
+  state.config = undoStack.pop()
+  updateUndoButtons()
+  refreshAllViews()
+}
+function doRedo(): void {
+  if (redoStack.length === 0) return
+  undoStack.push(state.config)
+  state.config = redoStack.pop()
+  updateUndoButtons()
+  refreshAllViews()
+}
+undoBtn.addEventListener('click', doUndo)
+redoBtn.addEventListener('click', doRedo)
+document.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey
+  if (!mod || e.key.toLowerCase() !== 'z') return
+  e.preventDefault()
+  if (e.shiftKey) doRedo()
+  else doUndo()
 })
 
 // Compact field layout (user request): dotted path + description on a small top
@@ -440,6 +501,7 @@ function deleteAt(root: unknown, path: FieldPath): unknown {
 // REQ-R18: revert one field to its last-saved baseline value, then rebuild the
 // form so the input reflects it (a deliberate click -> input-identity loss is fine).
 function resetField(path: FieldPath): void {
+  pushUndo(state.config)
   const base = getAt(state.original, path)
   state.config = base === undefined ? deleteAt(state.config, path) : setAt(state.config, path, base)
   buildForm()
@@ -484,6 +546,7 @@ function buildForm(): void {
   }
   state.config = applyDefaults(parsed.root as FieldNode, state.config)
   currentForm = renderForm(parsed.root, state.config, [], (path, value) => {
+    pushUndo(state.config)
     state.config = setAt(state.config, path, value)
     revalidate()
   })
@@ -516,6 +579,7 @@ const pathKey = (path: JsonPath): string => JSON.stringify(path)
 // Apply an immutable edit to the config, then refresh the tree and the shared
 // preview / validation / dirty / persist pipeline (works with or without a schema).
 function applyTreeEdit(next: unknown): void {
+  pushUndo(state.config)
   state.config = next
   renderTree()
   renderTreeControls()
