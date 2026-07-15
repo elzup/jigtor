@@ -72,6 +72,7 @@ type FilePickerWindow = Window & {
 
 let configFileHandle: FileSystemFileHandleLike | null = null
 let projectDirectoryHandle: FileSystemDirectoryHandleLike | null = null
+let currentConfigName: string | null = null // which file the project tree marks as "editing"
 const filePickerWindow = window as FilePickerWindow
 const canUseFileSystemAccess = (): boolean =>
   typeof filePickerWindow.showOpenFilePicker === 'function'
@@ -167,6 +168,10 @@ app.innerHTML = `
   </nav>
 
   <section id="panel-edit" class="panel">
+    <details id="project-tree" class="project-tree-view" hidden>
+      <summary>Project files</summary>
+      <div id="project-tree-body"></div>
+    </details>
     <p id="status" class="status"></p>
     <div id="schema-recommend" class="recommend" hidden></div>
     <main id="form-host"></main>
@@ -220,6 +225,8 @@ const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
 const projectPicker = app.querySelector<HTMLDivElement>('#project-picker')!
 const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
+const projectTree = app.querySelector<HTMLDetailsElement>('#project-tree')!
+const projectTreeBody = app.querySelector<HTMLDivElement>('#project-tree-body')!
 const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
 const openConfigBtn = app.querySelector<HTMLButtonElement>('#open-config')!
 const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
@@ -436,6 +443,7 @@ function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): voi
   if (kind === 'schema') loadSchema(parsed.value)
   else {
     configFileHandle = null
+    exitProjectMode() // imported/dropped config replaces the project context
     loadConfig(parsed.value)
   }
 }
@@ -645,7 +653,7 @@ async function openWithFileSystemAccess(kind: 'schema' | 'config'): Promise<void
   markNewData()
   if (kind === 'schema') loadSchema(parsed.value)
   else {
-    projectDirectoryHandle = null
+    exitProjectMode() // opening a lone config file leaves project-folder mode
     loadConfigFromHandle(parsed.value, handle)
   }
 }
@@ -696,6 +704,7 @@ async function listRootJsonFiles(dir: FileSystemDirectoryHandleLike): Promise<st
 // schema + history. With no schema, recommend generating one from the config.
 async function loadProjectConfig(dir: FileSystemDirectoryHandleLike, fileName: string): Promise<void> {
   schemaRecommend.hidden = true
+  currentConfigName = fileName
   configFileHandle = await dir.getFileHandle(fileName)
   const schema = await readJigtorSchema(dir)
   history = await readJigtorHistory(dir) // versioned snapshots from .jigtor/history.json.gz
@@ -704,6 +713,138 @@ async function loadProjectConfig(dir: FileSystemDirectoryHandleLike, fileName: s
   state.schema = schema
   loadConfigFromHandle(await readJsonHandle(configFileHandle), configFileHandle)
   if (schema === null) recommendGenerateSchema(fileName)
+  await renderProjectTree()
+}
+
+// Leaving project mode (import / drag-drop / example / single-file open): there
+// is no managed folder anymore, so hide the tree and forget the active file.
+function exitProjectMode(): void {
+  projectDirectoryHandle = null
+  currentConfigName = null
+  projectPicker.hidden = true
+  projectTree.hidden = true
+}
+
+// Compact file-explorer view of what jigtor manages in the opened folder: the
+// editable config (plus sibling JSON candidates you can switch to) and the
+// .jigtor/ artifacts. Enumeration reuses the same values() seam as the picker.
+async function renderProjectTree(): Promise<void> {
+  const dir = projectDirectoryHandle
+  if (dir === null || typeof dir.values !== 'function') {
+    projectTree.hidden = true
+    return
+  }
+  const files: string[] = []
+  const subdirs: string[] = []
+  for await (const entry of dir.values()) {
+    ;(entry.kind === 'directory' ? subdirs : files).push(entry.name)
+  }
+  const jigtorFiles = subdirs.includes('.jigtor') ? await listDirNames(dir, '.jigtor') : []
+
+  projectTreeBody.replaceChildren(
+    treeDirNode(dir.name, buildProjectChildren(dir, files.sort(), subdirs.sort(), jigtorFiles.sort())),
+  )
+  projectTree.hidden = false
+  projectTree.open = true
+}
+
+async function listDirNames(dir: FileSystemDirectoryHandleLike, name: string): Promise<string[]> {
+  try {
+    const sub = await dir.getDirectoryHandle(name)
+    if (typeof sub.values !== 'function') return []
+    const names: string[] = []
+    for await (const entry of sub.values()) names.push(entry.name)
+    return names
+  } catch {
+    return []
+  }
+}
+
+const JIGTOR_ROLES: Record<string, string> = {
+  'schema.json': 'schema',
+  'history.json.gz': 'history',
+}
+
+// Root children: sibling directories (only .jigtor expanded) then files (JSON
+// files clickable to switch config; the active one badged, others muted).
+function buildProjectChildren(
+  dir: FileSystemDirectoryHandleLike,
+  files: string[],
+  subdirs: string[],
+  jigtorFiles: string[],
+): HTMLUListElement {
+  const ul = document.createElement('ul')
+  for (const name of subdirs) {
+    const children =
+      name === '.jigtor'
+        ? treeChildList(jigtorFiles.map((f) => treeFileNode(f, { badge: JIGTOR_ROLES[f], muted: true })))
+        : undefined
+    ul.appendChild(treeDirNode(name, children))
+  }
+  for (const name of files) {
+    const isJson = name.toLowerCase().endsWith('.json')
+    const isActive = name === currentConfigName
+    ul.appendChild(
+      treeFileNode(name, {
+        active: isActive,
+        badge: isActive ? 'editing' : undefined,
+        muted: !isJson,
+        onClick:
+          isJson && !isActive
+            ? () => void loadProjectConfig(dir, name).catch((e) => {
+                status.textContent = `Could not open ${name}: ${String(e)}`
+                status.className = 'status error'
+              })
+            : undefined,
+      }),
+    )
+  }
+  return ul
+}
+
+function treeChildList(items: HTMLLIElement[]): HTMLUListElement {
+  const ul = document.createElement('ul')
+  for (const it of items) ul.appendChild(it)
+  return ul
+}
+
+function treeDirNode(name: string, children?: HTMLUListElement): HTMLLIElement {
+  const li = document.createElement('li')
+  li.className = 'tree-dir'
+  const label = document.createElement('span')
+  label.className = 'tree-label'
+  label.textContent = `📁 ${name}`
+  li.appendChild(label)
+  if (children) li.appendChild(children)
+  return li
+}
+
+function treeFileNode(
+  name: string,
+  opts: { active?: boolean; badge?: string; muted?: boolean; onClick?: () => void },
+): HTMLLIElement {
+  const li = document.createElement('li')
+  li.className = `tree-file${opts.active ? ' active' : ''}${opts.muted ? ' muted' : ''}`
+  let label: HTMLElement
+  if (opts.onClick) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'tree-link'
+    btn.addEventListener('click', opts.onClick)
+    label = btn
+  } else {
+    label = document.createElement('span')
+    label.className = 'tree-label'
+  }
+  label.textContent = `📄 ${name}`
+  li.appendChild(label)
+  if (opts.badge) {
+    const badge = document.createElement('span')
+    badge.className = 'tree-badge'
+    badge.textContent = opts.badge
+    li.appendChild(badge)
+  }
+  return li
 }
 
 // More than one JSON in the folder: ask which is the config, pre-highlighting
@@ -859,6 +1000,7 @@ app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click',
   state.schema = s.value
   state.config = c.value
   markNewData() // fresh session -> re-baseline
+  exitProjectMode() // the bundled example isn't a real folder
   buildForm()
 })
 
@@ -989,6 +1131,7 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
       .then(async (mode) => {
         markSaved()
         await writeProjectMetadata()
+        await renderProjectTree() // .jigtor/ artifacts may have just been created
         status.textContent = mode === 'direct' ? 'Saved config.json.' : 'Downloaded config.json.'
         status.className = 'status ok'
       })

@@ -177,6 +177,88 @@ button:disabled {
 .recommend[hidden] {
   display: none;
 }
+/* compact file-explorer of the opened project (managed files + .jigtor/) */
+.project-tree-view {
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.project-tree-view[hidden] {
+  display: none;
+}
+.project-tree-view > summary {
+  cursor: pointer;
+  padding: 0.4rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  list-style: none;
+}
+.project-tree-view > summary::-webkit-details-marker {
+  display: none;
+}
+.project-tree-view > summary::before {
+  content: '▸ ';
+  font-size: 0.7rem;
+}
+.project-tree-view[open] > summary::before {
+  content: '▾ ';
+}
+#project-tree-body {
+  max-height: 220px;
+  overflow: auto;
+  padding: 0 0.7rem 0.5rem;
+  font-size: 0.85rem;
+}
+#project-tree-body ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+#project-tree-body > li,
+#project-tree-body > .tree-dir {
+  padding-left: 0;
+}
+.tree-dir,
+.tree-file {
+  display: block;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.tree-file .tree-label,
+.tree-dir .tree-label {
+  color: var(--text);
+}
+.tree-file.muted .tree-label {
+  color: var(--muted);
+}
+.tree-link {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent);
+  font: inherit;
+}
+.tree-link:hover {
+  text-decoration: underline;
+}
+.tree-file.active .tree-label {
+  font-weight: 600;
+}
+.tree-badge {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  vertical-align: middle;
+}
+.tree-file.active .tree-badge {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
 
 /* ---- form ---- */
 .form-root {
