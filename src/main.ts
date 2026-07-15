@@ -306,10 +306,10 @@ app.innerHTML = `
       <div id="tree-host" class="tree-edit"></div>
     </div>
     <div class="diff-cols">
-      <details id="config-json" class="config-json" open>
-        <summary>Live diff — whole file (vs last load / save)</summary>
+      <div id="config-json" class="config-json">
+        <div class="diff-label">Live diff — whole file (vs last load / save)</div>
         <pre id="config-preview"></pre>
-      </details>
+      </div>
       <aside id="tree-controls" class="tree-controls" hidden></aside>
     </div>
     <footer class="save-bar">
@@ -954,7 +954,7 @@ function schemaExtBadge(path: JsonPath, inArray: boolean): HTMLElement | null {
   const parent = path.slice(0, -1)
   const parentGoverned = parent.length === 0 || resolveSchemaAt(state.schema, parent) !== null
   if (!parentGoverned) return null // an ancestor is already flagged
-  const badge = metaSpan('schema外', 'jt-schema-ext')
+  const badge = metaSpan('not in schema', 'jt-schema-ext')
   badge.title = 'Not defined in the schema — editable, but the schema does not validate this key.'
   return badge
 }
@@ -1513,6 +1513,11 @@ async function listRootJsonFiles(dir: FileSystemDirectoryHandleLike): Promise<st
 
 type ProjectConnectionMode = 'replace' | 'preserve-restored'
 
+// When a folder has several JSON candidates, selection is deferred to the
+// explorer (Project files). This holds the mode to apply once the user picks —
+// so a reconnect picked from the tree still preserves the restored edits.
+let pendingPickMode: ProjectConnectionMode = 'replace'
+
 function applyPreservedProjectState(
   config: unknown,
   schema: unknown | null,
@@ -1581,6 +1586,28 @@ async function connectProjectConfig(
     status.textContent = `Connected project ${dir.name}. Review the on-disk diff before saving.`
     status.className = 'status ok'
   }
+}
+
+// Multiple candidates: don't pop a cramped button row — show the folder in the
+// explorer with every JSON candidate clickable, and let the user pick there. The
+// mode is remembered so a reconnect pick still preserves restored edits.
+function promptConfigInExplorer(dir: FileSystemDirectoryHandleLike, count: number, mode: ProjectConnectionMode): void {
+  projectDirectoryHandle = dir
+  currentConfigName = null
+  pendingPickMode = mode
+  projectPicker.hidden = true
+  void renderProjectTree()
+  status.textContent = `${count} JSON files here — pick which one to edit in Project files.`
+  status.className = 'status'
+}
+
+// Connect a config chosen from the explorer, applying the deferred pick mode and
+// closing the reconnect gate when the pick completes a reconnect.
+async function pickProjectConfig(dir: FileSystemDirectoryHandleLike, fileName: string): Promise<void> {
+  const mode = pendingPickMode
+  pendingPickMode = 'replace'
+  await connectProjectConfig(dir, fileName, mode)
+  if (mode === 'preserve-restored') setReconnectGate(false)
 }
 
 // Leaving project mode (import / drag-drop / example): there
@@ -1659,15 +1686,20 @@ function buildProjectChildren(
   const picking = currentConfigName === null
   for (const name of jsonFiles) {
     const isActive = name === currentConfigName
+    // Initial pick (nothing chosen) honours the deferred reconnect mode; switching
+    // an already-open config is a plain replace.
+    const connect = (): Promise<void> =>
+      picking ? pickProjectConfig(dir, name) : connectProjectConfig(dir, name, 'replace')
     ul.appendChild(
       treeFileNode(name, {
         active: isActive,
         badge: isActive ? 'editing' : picking ? 'pick' : undefined,
         onClick: !isActive
-          ? () => void connectProjectConfig(dir, name, 'replace').catch((e) => {
-              status.textContent = `Could not open ${name}: ${String(e)}`
-              status.className = 'status error'
-            })
+          ? () =>
+              void connect().catch((e) => {
+                status.textContent = `Could not open ${name}: ${String(e)}`
+                status.className = 'status error'
+              })
           : undefined,
       }),
     )
@@ -1720,37 +1752,6 @@ function treeFileNode(
   return li
 }
 
-// More than one JSON in the folder: ask which is the config, pre-highlighting
-// config.json when present.
-function chooseConfigCandidate(candidates: string[]): Promise<string | null> {
-  const preferred = candidates.includes('config.json') ? 'config.json' : candidates[0]
-  return new Promise((resolve) => {
-    const label = document.createElement('span')
-    label.className = 'hint'
-    label.textContent = 'Which file is the config to edit?'
-    const buttons = candidates.map((name) => {
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.className = name === preferred ? 'filebtn primary' : 'filebtn'
-      btn.textContent = name
-      btn.addEventListener('click', () => {
-        projectPicker.hidden = true
-        resolve(name)
-      })
-      return btn
-    })
-    const cancel = document.createElement('button')
-    cancel.type = 'button'
-    cancel.textContent = 'Cancel'
-    cancel.addEventListener('click', () => {
-      projectPicker.hidden = true
-      resolve(null)
-    })
-    projectPicker.replaceChildren(label, ...buttons, cancel)
-    projectPicker.hidden = false
-  })
-}
-
 async function openProjectFolder(mode: ProjectConnectionMode): Promise<boolean> {
   if (!canUseProjectAccess()) {
     status.textContent = 'Project-folder save requires a Chromium-based browser with directory access support.'
@@ -1769,10 +1770,15 @@ async function openProjectFolder(mode: ProjectConnectionMode): Promise<boolean> 
     status.className = 'status error'
     return false
   }
-  const fileName = candidates.length === 1 ? first : await chooseConfigCandidate(candidates)
-  if (fileName === null) return false
-  await connectProjectConfig(dir, fileName, mode)
-  return true
+  if (candidates.length === 1) {
+    await connectProjectConfig(dir, first, mode)
+    return true
+  }
+  // Several candidates: defer the choice to the explorer (roomier than a button
+  // row, and consistent with switching config later). Not connected yet, so the
+  // caller must not treat this as a completed reconnect.
+  promptConfigInExplorer(dir, candidates.length, mode)
+  return false
 }
 
 openProjectBtn.addEventListener('click', () => {
@@ -1862,12 +1868,14 @@ async function openDroppedProjectFolder(dir: FileSystemDirectoryHandleLike): Pro
     status.className = 'status error'
     return
   }
-  const fileName = candidates.length === 1 ? first : await chooseConfigCandidate(candidates)
-  if (fileName === null) return
   const mode: ProjectConnectionMode =
     hasLoadedConfig && projectDirectoryHandle === null ? 'preserve-restored' : 'replace'
-  await connectProjectConfig(dir, fileName, mode)
-  if (mode === 'preserve-restored') setReconnectGate(false)
+  if (candidates.length === 1) {
+    await connectProjectConfig(dir, first, mode)
+    if (mode === 'preserve-restored') setReconnectGate(false)
+    return
+  }
+  promptConfigInExplorer(dir, candidates.length, mode)
 }
 
 // ---- schema inference / adjustment ----
@@ -2064,11 +2072,13 @@ function renderSaveDialog(): void {
     none.textContent = 'No changes from the loaded config.'
     saveDialog.appendChild(none)
   } else {
-    // Review changes as the JSON body itself (whole-file diff), not a change list.
-    const diff = document.createElement('pre')
-    diff.className = 'save-diff'
-    fillWholeFileDiff(diff)
-    saveDialog.appendChild(diff)
+    // The whole-file diff is always visible in the Live diff panel, so the dialog
+    // only needs to confirm how much is about to be written.
+    const summary = document.createElement('p')
+    summary.className = 'hint'
+    const n = changes.length
+    summary.textContent = `${n} change${n === 1 ? '' : 's'} to save — see the Live diff for the full file.`
+    saveDialog.appendChild(summary)
   }
 
   const actions = document.createElement('div')

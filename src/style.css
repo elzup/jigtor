@@ -436,10 +436,12 @@ legend {
 .field select,
 .field textarea {
   width: 100%;
+  max-width: 32rem;
 }
 .field textarea {
   min-height: 4rem;
   resize: vertical;
+  max-width: 40rem;
 }
 .field-description {
   color: var(--muted);
@@ -850,9 +852,13 @@ input.toggle:checked::after {
 }
 .schema-actions {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
   align-items: center;
   margin-top: 0.5rem;
+}
+.schema-actions > button {
+  flex: 0 0 auto;
 }
 /* ---- live JSON preview (Edit tab) ---- */
 /* Edit tab: Block | Tree mode switch */
@@ -1001,8 +1007,7 @@ input.toggle:checked::after {
 .config-json {
   margin-top: 1rem;
 }
-.config-json summary {
-  cursor: pointer;
+.config-json .diff-label {
   color: var(--muted);
   font-size: 0.9rem;
 }
@@ -1372,16 +1377,27 @@ footer {
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
-/* compact fields must still read as separate rows — a hairline divider + a bit
-   of padding keeps them from visually sticking together while staying dense */
+/* compact fields: separation is the grid's job, not padding. The input column is
+   bounded and the grid starts (doesn't stretch), so controls stay their natural
+   size instead of sprawling full-width. Padding stays minimal. */
 .compact .field {
+  grid-template-columns: max-content minmax(8rem, 22rem);
+  justify-content: start;
+  align-items: baseline;
+  column-gap: 0.6rem;
+  row-gap: 0.2rem;
   margin: 0;
-  padding: 0.35rem 0;
+  padding: 0.3rem 0.25rem 0.3rem 0.75rem;
   border-top: 1px solid var(--border);
 }
 .compact .field:first-child {
   border-top: none;
-  padding-top: 0.1rem;
+}
+/* fill the bounded track only — never wider than the column */
+.compact .field input,
+.compact .field select,
+.compact .field textarea {
+  max-width: 100%;
 }
 
 /* ---- Tree layout polish: align the edit controls into columns ---- */
