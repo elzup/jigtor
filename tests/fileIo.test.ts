@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'vitest'
-import { parseJsonFile, serializeConfig, classifyFile } from '../src/core/fileIo'
+import {
+  parseJsonFile,
+  serializeConfig,
+  classifyFile,
+  prepareProjectReconnect,
+  resolveSaveTargetMode,
+} from '../src/core/fileIo'
 
 describe('spec:file-io', () => {
   test('REQ-F01: valid JSON -> ok with value', () => {
@@ -38,5 +44,64 @@ describe('spec:file-io', () => {
   test('REQ-F06: config detection and unknown fallback', () => {
     expect(classifyFile('config.json', { max: 20, key: 'abc' })).toBe('config')
     expect(classifyFile('random.json', 42)).toBe('unknown')
+  })
+
+  test('project reconnect keeps restored config and schema edits while using disk config as baseline', () => {
+    const restored = { host: 'edited.local', port: 9000 }
+    const restoredSchema = {
+      type: 'object',
+      properties: { host: { type: 'string' } },
+    }
+    const diskSchema = {
+      type: 'object',
+      properties: { host: { type: 'string' }, max: { type: 'integer' } },
+    }
+    const result = prepareProjectReconnect(
+      restored,
+      restoredSchema,
+      '{"host":"disk.local","port":8080,"max":20}',
+      diskSchema,
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      config: restored,
+      schema: restoredSchema,
+      schemaBaseline: diskSchema,
+      baseline: { host: 'disk.local', port: 8080, max: 20 },
+    })
+    expect(restored).toEqual({ host: 'edited.local', port: 9000 })
+    expect((result as { schema: typeof restoredSchema }).schema.properties).not.toHaveProperty('max')
+  })
+
+  test('reconnect rejects an invalid target without replacing restored edits', () => {
+    const restored = { host: 'edited.local' }
+    const result = prepareProjectReconnect(restored, null, '{ invalid', null)
+
+    expect(result).toEqual(expect.objectContaining({ ok: false }))
+    expect(restored).toEqual({ host: 'edited.local' })
+  })
+
+  test('project reconnect adopts the project schema only when the restored session has none', () => {
+    const diskSchema = { type: 'object', properties: { key: { type: 'string' } } }
+    const result = prepareProjectReconnect({}, null, '{}', diskSchema)
+
+    expect(result).toEqual({
+      ok: true,
+      config: {},
+      schema: diskSchema,
+      schemaBaseline: diskSchema,
+      baseline: {},
+    })
+  })
+
+  test('restored sessions require reconnect until download mode is explicitly chosen', () => {
+    expect(resolveSaveTargetMode(false, true, false)).toBe('reconnect-required')
+    expect(resolveSaveTargetMode(false, true, true)).toBe('download')
+  })
+
+  test('connected files save directly and unsupported browsers download', () => {
+    expect(resolveSaveTargetMode(true, true, false)).toBe('direct')
+    expect(resolveSaveTargetMode(false, false, false)).toBe('download')
   })
 })

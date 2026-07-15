@@ -16,6 +16,20 @@ export const DEFAULT_HISTORY_CAP = 200
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
 const pathId = (path: FieldPath): string => JSON.stringify(path)
 
+export function mergeHistories(
+  projectHistory: SaveHistory,
+  browserHistory: SaveHistory,
+  cap: number = DEFAULT_HISTORY_CAP,
+): SaveHistory {
+  const snapshotsById = new Map<string, Snapshot>()
+  for (const snapshot of [...projectHistory, ...browserHistory]) {
+    const id = JSON.stringify([snapshot.at, snapshot.config])
+    snapshotsById.set(id, { at: snapshot.at, config: clone(snapshot.config) })
+  }
+  const merged = [...snapshotsById.values()].sort((a, b) => a.at - b.at)
+  return merged.length > cap ? merged.slice(merged.length - cap) : merged
+}
+
 // Append a full-config snapshot, keeping at most `cap` most-recent versions. A
 // no-op save (config identical to the latest snapshot) is dropped so versions
 // stay meaningful. `at` is injected (not read from a clock) so this stays pure.

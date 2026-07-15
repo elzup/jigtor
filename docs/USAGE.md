@@ -149,7 +149,11 @@ is allowed even when invalid — you are never blocked from preserving your work
 The last schema + config is persisted to `localStorage` and auto-restored on the
 next visit. When folder permission is available, the full version history is also
 written to `.jigtor/history.json.gz` (gzipped, latest 200 versions). **Forget
-saved** clears the browser restore data.
+saved** clears the browser restore data. An auto-restored session has no connected
+save target, so jigtor shows an inline alert and temporarily disables the Edit
+panel. With **Reconnect project folder…**, choose the original folder to keep
+project files consistent. Nothing is written until **Save**. Choose
+**Use Download mode** to keep editing without a directly connected save target.
 
 ## Supported JSON Schema subset (V1)
 

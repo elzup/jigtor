@@ -85,6 +85,9 @@ describe('spec:schema-edit', () => {
 
   test('REQ-SE07: removeSchemaField deletes property and its required entry', () => {
     const s0 = schema()
+    const withoutMax = removeSchemaField(s0, ['max']) as any
+    expect('max' in withoutMax.properties).toBe(false)
+    expect(withoutMax.required).not.toContain('max')
     const s1 = removeSchemaField(s0, ['key']) as any
     expect('key' in s1.properties).toBe(false)
     expect(s1.required).not.toContain('key')

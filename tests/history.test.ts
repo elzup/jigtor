@@ -5,6 +5,7 @@ import {
   fieldHistory,
   historyPaths,
   parseHistory,
+  mergeHistories,
   DEFAULT_HISTORY_CAP,
   type SaveHistory,
 } from '../src/core/history'
@@ -84,5 +85,24 @@ describe('spec:history (versioned snapshots)', () => {
   test('deriveFieldEntries is empty for a single version (no predecessor)', () => {
     const h = recordSnapshot([], { a: 1, b: 2 }, 1)
     expect(deriveFieldEntries(h)).toEqual([])
+  })
+
+  test('project reconnect merges browser and project histories chronologically without duplicates', () => {
+    const project = [
+      { at: 10, config: { value: 1 } },
+      { at: 20, config: { value: 2 } },
+    ]
+    const browser = [
+      { at: 20, config: { value: 2 } },
+      { at: 30, config: { value: 3 } },
+    ]
+
+    expect(mergeHistories(project, browser)).toEqual([
+      { at: 10, config: { value: 1 } },
+      { at: 20, config: { value: 2 } },
+      { at: 30, config: { value: 3 } },
+    ])
+    expect(project).toHaveLength(2)
+    expect(browser).toHaveLength(2)
   })
 })

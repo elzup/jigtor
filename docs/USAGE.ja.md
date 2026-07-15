@@ -142,6 +142,10 @@ my-device/
 
 直近の schema + config を `localStorage` に保存し、次回自動復元。フォルダ権限がある場合は
 全バージョン履歴を `.jigtor/history.json.gz`(gzip 圧縮、最新 200 版)にも残します。
+自動復元後は保存先が未接続のため、ファイル操作欄に alert を表示して Edit パネルを
+一時的に無効化します。**Reconnect project folder…** では、ファイルの整合性を保つため
+元と同じフォルダを選択してください。**Save** までは書き込みません。
+直接保存を使わない場合は **Use Download mode** で編集を続行できます。
 **Forget saved** でブラウザ内の復元情報を消去。
 
 ## 対応する JSON Schema サブセット(V1)
