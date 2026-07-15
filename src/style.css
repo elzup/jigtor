@@ -796,6 +796,95 @@ input.toggle:checked::after {
   background: color-mix(in srgb, var(--err) 14%, transparent);
 }
 
+/* ---- Tree (real edit) mode ---- */
+.tree-edit {
+  font-size: 0.85rem;
+  overflow: auto;
+}
+.jt-children {
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+  margin-left: 0.35rem;
+}
+.jt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.12rem 0;
+  flex-wrap: wrap;
+}
+.jt-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  width: 1.1rem;
+  padding: 0;
+  font-size: 0.8rem;
+}
+.jt-spacer {
+  width: 1.1rem;
+  display: inline-block;
+}
+.jt-key {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.35rem;
+  font: inherit;
+  width: 10ch;
+}
+.jt-index {
+  color: var(--muted);
+  width: 2.5ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.jt-type {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0.05rem 0.2rem;
+}
+.jt-value {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.35rem;
+  font: inherit;
+  min-width: 12ch;
+  flex: 1 1 12ch;
+  max-width: 32ch;
+}
+.jt-null {
+  color: var(--muted);
+  font-style: italic;
+}
+.jt-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.jt-actions {
+  display: inline-flex;
+  gap: 0.15rem;
+}
+.jt-btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0.05rem 0.3rem;
+  line-height: 1.4;
+}
+.jt-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.jt-add {
+  opacity: 0.75;
+}
+
 /* ---- history (per field) ---- */
 .history-field {
   border: 1px solid var(--border);

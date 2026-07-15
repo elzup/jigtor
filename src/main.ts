@@ -11,6 +11,18 @@ import { applyDefaults } from './core/applyDefaults'
 import { diffConfig, type Change } from './core/diffConfig'
 import { lineDiff } from './core/lineDiff'
 import {
+  valueType,
+  defaultForType,
+  coerceType,
+  jsonSet,
+  jsonDelete,
+  jsonRenameKey,
+  jsonInsert,
+  jsonMoveItem,
+  type JsonType,
+  type JsonPath,
+} from './core/jsonEdit'
+import {
   recordSnapshot,
   fieldHistory,
   historyPaths,
@@ -164,6 +176,7 @@ app.innerHTML = `
 
   <nav class="tabs">
     <button class="tab active" data-tab="edit" type="button">Edit</button>
+    <button class="tab" data-tab="tree" type="button">Tree</button>
     <button class="tab" data-tab="schema" type="button">Schema</button>
     <button class="tab" data-tab="history" type="button">History</button>
   </nav>
@@ -185,6 +198,12 @@ app.innerHTML = `
       <span id="dirty-note" class="dirty-note" hidden></span>
     </footer>
     <div id="save-dialog" class="save-dialog" hidden></div>
+  </section>
+
+  <section id="panel-tree" class="panel" hidden>
+    <p class="hint">Direct JSON editing — no schema needed. Edit values in place,
+      change types, rename keys, add / remove / reorder entries.</p>
+    <div id="tree-host" class="tree-edit"></div>
   </section>
 
   <section id="panel-schema" class="panel" hidden>
@@ -224,6 +243,7 @@ const saveBtn = app.querySelector<HTMLButtonElement>('#save')!
 const dirtyNote = app.querySelector<HTMLSpanElement>('#dirty-note')!
 const configPreview = app.querySelector<HTMLPreElement>('#config-preview')!
 const historyHost = app.querySelector<HTMLDivElement>('#history-host')!
+const treeHost = app.querySelector<HTMLDivElement>('#tree-host')!
 const projectPicker = app.querySelector<HTMLDivElement>('#project-picker')!
 const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
 const projectTree = app.querySelector<HTMLDetailsElement>('#project-tree')!
@@ -428,6 +448,239 @@ function buildForm(): void {
   persist()
   forgetBtn.hidden = false // a session now exists to recall/forget
   revalidate()
+}
+
+// ---- Tree (real edit) mode: schema-independent, Firestore-style JSON editor ----
+const JSON_TYPES: JsonType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
+const collapsedPaths = new Set<string>() // pathKey -> collapsed (default expanded)
+const pathKey = (path: JsonPath): string => JSON.stringify(path)
+
+// Apply an immutable edit to the config, then refresh the tree and the shared
+// preview / validation / dirty / persist pipeline (works with or without a schema).
+function applyTreeEdit(next: unknown): void {
+  state.config = next
+  renderTree()
+  if (state.schema !== null && currentForm !== null) {
+    revalidate() // also refreshes preview / dirty / persist
+  } else {
+    renderConfigPreview()
+    updateDirty()
+    persist()
+  }
+}
+
+function renderTree(): void {
+  const type = valueType(state.config)
+  if (type === 'object' || type === 'array') {
+    treeHost.replaceChildren(treeContainerBody(state.config, []))
+  } else {
+    // A bare primitive root: offer a single value editor at the root path.
+    treeHost.replaceChildren(treeLeafRow('(value)', state.config, [], { root: true }))
+  }
+}
+
+function treeContainerBody(container: unknown, path: JsonPath): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'jt-children'
+  const entries: Array<[string | number, unknown]> = Array.isArray(container)
+    ? container.map((v, i) => [i, v])
+    : Object.entries(container as Record<string, unknown>)
+  for (const [key, value] of entries) {
+    wrap.appendChild(treeEntry(key, value, path, Array.isArray(container)))
+  }
+  wrap.appendChild(treeAddRow(container, path))
+  return wrap
+}
+
+function treeEntry(
+  key: string | number,
+  value: unknown,
+  parentPath: JsonPath,
+  inArray: boolean,
+): HTMLElement {
+  const path = [...parentPath, key]
+  const type = valueType(value)
+  if (type === 'object' || type === 'array') return treeContainerRow(key, value, path, inArray)
+  return treeLeafRow(key, value, path, { inArray })
+}
+
+// Object/array node: a header row (key, type, controls) + collapsible children.
+function treeContainerRow(
+  key: string | number,
+  value: unknown,
+  path: JsonPath,
+  inArray: boolean,
+): HTMLElement {
+  const li = document.createElement('div')
+  li.className = 'jt-node'
+  const header = document.createElement('div')
+  header.className = 'jt-row'
+  const collapsed = collapsedPaths.has(pathKey(path))
+  const toggle = document.createElement('button')
+  toggle.type = 'button'
+  toggle.className = 'jt-toggle'
+  toggle.textContent = collapsed ? '▸' : '▾'
+  toggle.addEventListener('click', () => {
+    if (collapsed) collapsedPaths.delete(pathKey(path))
+    else collapsedPaths.add(pathKey(path))
+    renderTree()
+  })
+  const count = Array.isArray(value) ? value.length : Object.keys(value as object).length
+  header.append(
+    toggle,
+    treeKeyCell(key, path, inArray),
+    treeTypeSelect(value, path),
+    metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`),
+    treeActions(path, inArray),
+  )
+  li.appendChild(header)
+  if (!collapsed) li.appendChild(treeContainerBody(value, path))
+  return li
+}
+
+function treeLeafRow(
+  key: string | number,
+  value: unknown,
+  path: JsonPath,
+  opts: { inArray?: boolean; root?: boolean },
+): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'jt-row'
+  if (!opts.root) row.append(spacer(), treeKeyCell(key, path, opts.inArray ?? false))
+  row.append(treeTypeSelect(value, path), treeValueEditor(value, path))
+  if (!opts.root) row.append(treeActions(path, opts.inArray ?? false))
+  return row
+}
+
+// Key cell: array indices are read-only labels; object keys rename on change.
+function treeKeyCell(key: string | number, path: JsonPath, inArray: boolean): HTMLElement {
+  if (inArray) return metaSpan(`${key}`, 'jt-index')
+  const input = document.createElement('input')
+  input.className = 'jt-key'
+  input.value = String(key)
+  input.setAttribute('aria-label', 'key')
+  const parentPath = path.slice(0, -1)
+  input.addEventListener('change', () => {
+    const next = input.value.trim()
+    if (next === '' || next === String(key)) {
+      input.value = String(key)
+      return
+    }
+    applyTreeEdit(jsonRenameKey(state.config, parentPath, String(key), next))
+  })
+  return input
+}
+
+function treeTypeSelect(value: unknown, path: JsonPath): HTMLSelectElement {
+  const select = document.createElement('select')
+  select.className = 'jt-type'
+  select.setAttribute('aria-label', 'type')
+  const current = valueType(value)
+  for (const t of JSON_TYPES) {
+    const opt = document.createElement('option')
+    opt.value = t
+    opt.textContent = t
+    if (t === current) opt.selected = true
+    select.appendChild(opt)
+  }
+  select.addEventListener('change', () => {
+    const t = select.value as JsonType
+    applyTreeEdit(jsonSet(state.config, path, coerceType(value, t)))
+  })
+  return select
+}
+
+// Type-appropriate leaf editor; commits on change (blur/enter) to avoid caret jumps.
+function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
+  const type = valueType(value)
+  if (type === 'boolean') {
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.className = 'jt-bool'
+    box.checked = value === true
+    box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
+    return box
+  }
+  if (type === 'null') return metaSpan('null', 'jt-null')
+  const input = document.createElement('input')
+  input.className = 'jt-value'
+  input.type = type === 'number' ? 'number' : 'text'
+  input.value = type === 'number' ? String(value) : String(value ?? '')
+  input.addEventListener('change', () => {
+    const next = type === 'number' ? Number(input.value) : input.value
+    if (type === 'number' && !Number.isFinite(next as number)) {
+      input.value = String(value)
+      return
+    }
+    applyTreeEdit(jsonSet(state.config, path, next))
+  })
+  return input
+}
+
+// Per-entry controls: delete, plus reorder for array items.
+function treeActions(path: JsonPath, inArray: boolean): HTMLElement {
+  const wrap = document.createElement('span')
+  wrap.className = 'jt-actions'
+  if (inArray) {
+    const index = Number(path[path.length - 1])
+    const arrayPath = path.slice(0, -1)
+    wrap.append(
+      iconButton('↑', 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1))),
+      iconButton('↓', 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1))),
+    )
+  }
+  wrap.append(iconButton('✕', 'delete', () => applyTreeEdit(jsonDelete(state.config, path))))
+  return wrap
+}
+
+// "Add child" affordance under a container: a button (arrays) or key + button.
+function treeAddRow(container: unknown, path: JsonPath): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'jt-row jt-add'
+  row.appendChild(spacer())
+  if (Array.isArray(container)) {
+    row.appendChild(
+      iconButton('+ item', 'add item', () =>
+        applyTreeEdit(jsonInsert(state.config, path, '', defaultForType('string'))),
+      ),
+    )
+    return row
+  }
+  const keyInput = document.createElement('input')
+  keyInput.className = 'jt-key'
+  keyInput.placeholder = 'new key'
+  const add = (): void => {
+    const key = keyInput.value.trim()
+    if (key === '') return
+    keyInput.value = ''
+    applyTreeEdit(jsonInsert(state.config, path, key, defaultForType('string')))
+  }
+  keyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') add()
+  })
+  row.append(keyInput, iconButton('+ key', 'add key', add))
+  return row
+}
+
+function iconButton(text: string, label: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'jt-btn'
+  btn.textContent = text
+  btn.setAttribute('aria-label', label)
+  btn.addEventListener('click', onClick)
+  return btn
+}
+
+function metaSpan(text: string, cls = 'jt-meta'): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.className = cls
+  span.textContent = text
+  return span
+}
+
+function spacer(): HTMLSpanElement {
+  return metaSpan('', 'jt-spacer')
 }
 
 function loadSchema(value: unknown): void {
@@ -643,6 +896,10 @@ app.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
       panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
     })
     if (target === 'history') renderHistoryTab()
+    if (target === 'tree') renderTree()
+    // Re-sync the schema form from the current config (it may have been edited in
+    // the Tree tab, which mutates state.config directly).
+    if (target === 'edit' && state.schema !== null) buildForm()
   })
 })
 
