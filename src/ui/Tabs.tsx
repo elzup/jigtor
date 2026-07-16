@@ -1,5 +1,5 @@
 import { Icon, type IconName } from './icons'
-import { type Tab, useUiStore } from './store'
+import { type Tab, tabVisible, useUiStore } from './store'
 
 // Carved from the imperative shell's <nav class="tabs">. Reads the active tab from
 // the shared store and writes clicks back to it; the legacy shell subscribes and
@@ -14,9 +14,13 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 export function Tabs() {
   const activeTab = useUiStore((s) => s.activeTab)
   const setActiveTab = useUiStore((s) => s.setActiveTab)
+  const hasConfig = useUiStore((s) => s.hasConfig)
+  const hasSchema = useUiStore((s) => s.hasSchema)
+  const hasHistory = useUiStore((s) => s.hasHistory)
+  const tabs = TABS.filter((tab) => tabVisible(tab.id, { hasConfig, hasSchema, hasHistory }))
   return (
     <nav className="tabs">
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.id}
           className={tab.id === activeTab ? 'tab active' : 'tab'}

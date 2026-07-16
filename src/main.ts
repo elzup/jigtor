@@ -670,6 +670,7 @@ function revalidate(): void {
 // defaults, build the form once, sync the schema editor, validate.
 function buildForm(): void {
   saveDialog.hidden = true
+  syncTabs() // load state may have changed which tabs are meaningful
   renderSchemaTab() // keep the structured schema editor + sample preview in sync
   if (state.schema === null) {
     status.textContent = 'Load a schema (or generate one from a config) to start editing.'
@@ -1697,6 +1698,17 @@ function renderSchemaTab(): void {
 // The <nav> is now a React component (src/ui/Tabs.tsx) portaled into #tabs-slot.
 // It writes the active tab to the shared store; this shell subscribes and applies
 // the DOM side effects (panel visibility + view re-sync) it always did.
+// Push the current load state into the store so Tabs.tsx can show only the tabs
+// that make sense (spec:open-flow REQ-OF09). Called wherever config/schema/history
+// availability changes. The store redirects the active tab if it just hid.
+function syncTabs(): void {
+  useUiStore.getState().setAvailability({
+    hasConfig: hasLoadedConfig,
+    hasSchema: state.schema !== null,
+    hasHistory: historyPaths(history).length > 0,
+  })
+}
+
 function showTab(target: Tab): void {
   app.querySelectorAll<HTMLElement>('.panel').forEach((panel) => {
     panel.toggleAttribute('hidden', panel.id !== `panel-${target}`)
@@ -2294,6 +2306,7 @@ function markSaved(): void {
   state.canonical = clone(state.config) // the saved key order becomes canonical
   state.originalSchema = clone(state.schema)
   saveDialog.hidden = true
+  syncTabs() // first save creates history — the History tab becomes available
   updateDirty()
   revalidate() // clear per-field dirty decoration now that everything is saved
 }
