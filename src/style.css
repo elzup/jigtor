@@ -1565,6 +1565,28 @@ footer {
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
+/* schema-declared key the config is missing: greyed, with the key + type + an
+   "add" affordance so the user can see (and fill) what the schema expects. */
+.jt-missing {
+  opacity: 0.6;
+}
+.jt-missing:hover {
+  opacity: 1;
+}
+.jt-mkey {
+  font-family: ui-monospace, monospace;
+  font-style: italic;
+  color: var(--muted);
+}
+.jt-missing-tag {
+  margin-inline-start: 0.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+}
+
 /* compact fields: separation is the grid's job, not padding. The input column is
    bounded and the grid starts (doesn't stretch), so controls stay their natural
    size instead of sprawling full-width. Padding stays minimal. */

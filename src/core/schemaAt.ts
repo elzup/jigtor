@@ -16,7 +16,14 @@ export type SubSchema = {
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-export function resolveSchemaAt(schema: unknown, path: JsonPath): SubSchema | null {
+// The raw schema node governing `path` (with its full keyword set: properties,
+// required, default, ...). The Tree overlay needs `properties`/`default`, which
+// the narrower SubSchema hides. Returns null when the path leaves the described
+// shape (unknown key, $ref, tuple items, etc.).
+export function resolveRawSchemaAt(
+  schema: unknown,
+  path: JsonPath,
+): Record<string, unknown> | null {
   let node: unknown = schema
   for (const key of path) {
     if (!isObject(node)) return null
@@ -27,5 +34,9 @@ export function resolveSchemaAt(schema: unknown, path: JsonPath): SubSchema | nu
       node = isObject(props) ? props[key] : undefined
     }
   }
-  return isObject(node) ? (node as SubSchema) : null
+  return isObject(node) ? node : null
+}
+
+export function resolveSchemaAt(schema: unknown, path: JsonPath): SubSchema | null {
+  return resolveRawSchemaAt(schema, path) as SubSchema | null
 }

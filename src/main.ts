@@ -27,8 +27,10 @@ import {
   jsonInsert,
   jsonMoveItem,
   type JsonPath,
+  type JsonType,
 } from './core/jsonEdit'
-import { resolveSchemaAt } from './core/schemaAt'
+import { resolveSchemaAt, resolveRawSchemaAt } from './core/schemaAt'
+import { orderedChildSlots } from './core/treeOverlay'
 import { orderLike } from './core/orderLike'
 import {
   recordSnapshot,
@@ -866,14 +868,89 @@ function tcGauge(min: number, max: number, value: number, path: JsonPath): HTMLE
 function treeContainerBody(container: unknown, path: JsonPath): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'jt-children'
-  const entries: Array<[string | number, unknown]> = Array.isArray(container)
-    ? container.map((v, i) => [i, v])
-    : Object.entries(container as Record<string, unknown>)
-  for (const [key, value] of entries) {
-    wrap.appendChild(treeEntry(key, value, path, Array.isArray(container)))
+  if (Array.isArray(container)) {
+    // Arrays are positional: element order is data, never overlaid or reordered.
+    container.forEach((value, i) => wrap.appendChild(treeEntry(i, value, path, true)))
+    wrap.appendChild(treeAddRow(container, path))
+    return wrap
+  }
+  const obj = container as Record<string, unknown>
+  const schemaNode = state.schema !== null ? resolveRawSchemaAt(state.schema, path) : null
+  const schemaProps = objectSchemaKeys(schemaNode)
+  for (const slot of orderedChildSlots(Object.keys(obj), schemaProps)) {
+    if (slot.presence === 'missing') {
+      wrap.appendChild(treeMissingRow(slot.key, path, childSchemaOf(schemaNode, slot.key)))
+    } else {
+      wrap.appendChild(treeEntry(slot.key, obj[slot.key], path, false))
+    }
   }
   wrap.appendChild(treeAddRow(container, path))
   return wrap
+}
+
+const isSchemaObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+// Property keys declared by an object schema node, in declared order — or null
+// when the node doesn't describe an object (so the caller keeps config order).
+function objectSchemaKeys(node: Record<string, unknown> | null): string[] | null {
+  if (node === null || !isSchemaObject(node.properties)) return null
+  return Object.keys(node.properties)
+}
+
+function childSchemaOf(node: Record<string, unknown> | null, key: string): Record<string, unknown> | null {
+  if (node === null || !isSchemaObject(node.properties)) return null
+  const child = node.properties[key]
+  return isSchemaObject(child) ? child : null
+}
+
+const SCHEMA_TO_JSON_TYPE: Record<string, JsonType> = {
+  string: 'string',
+  number: 'number',
+  integer: 'number',
+  boolean: 'boolean',
+  object: 'object',
+  array: 'array',
+  null: 'null',
+}
+
+function missingKeyType(childSchema: Record<string, unknown> | null): JsonType | null {
+  const t = childSchema?.type
+  return typeof t === 'string' && t in SCHEMA_TO_JSON_TYPE ? SCHEMA_TO_JSON_TYPE[t]! : null
+}
+
+// A schema-declared key that the config file does not have: shown greyed so the
+// user can see what the schema expects, with an "add" action that inserts the
+// schema default (or the type's default) at the right slot.
+function treeMissingRow(
+  key: string,
+  parentPath: JsonPath,
+  childSchema: Record<string, unknown> | null,
+): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'jt-row jt-missing'
+  row.style.setProperty('--depth', String(parentPath.length))
+  const zc = document.createElement('span')
+  zc.className = 'jt-zc'
+  zc.append(spacer()) // lead slot, matching editable rows
+  zc.append(metaSpan(key, 'jt-mkey'))
+  const jt = missingKeyType(childSchema)
+  if (jt !== null) zc.append(treeTypeChip(defaultForType(jt)))
+  zc.append(metaSpan('not set', 'jt-missing-tag'))
+  if (typeof childSchema?.description === 'string') zc.title = childSchema.description
+  zc.append(
+    svgIconButton(
+      ICON.plus,
+      `add ${key}`,
+      () => {
+        const value = childSchema && 'default' in childSchema ? childSchema.default : defaultForType(jt ?? 'string')
+        applyTreeEdit(jsonInsert(state.config, parentPath, key, value))
+      },
+      ' add',
+    ),
+  )
+  row.append(zc)
+  return row
 }
 
 function treeEntry(
