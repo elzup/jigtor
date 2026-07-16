@@ -116,10 +116,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          # Invoke the local CLI via npx so the Windows runner resolves it —
-          # `npm run tauri` (the default) runs the bare `tauri` script, which is
-          # not on PATH there ("'tauri' is not recognized").
-          tauriScript: npx tauri
+          # Invoke the CLI's JS entry directly via node, bypassing npx / npm-run /
+          # PATH / the .bin shim — all of which have failed to resolve `tauri` on
+          # the Windows runner ("'tauri' is not recognized", then npx's "could not
+          # determine executable to run"). The package is pinned in the lockfile
+          # for every platform, so node resolves this path on macOS/Linux/Windows.
+          tauriScript: node ./node_modules/@tauri-apps/cli/tauri.js
           tagName: ${{ github.ref_name }}
           releaseName: "jigtor ${{ github.ref_name }}"
           args: ${{ matrix.args }}
