@@ -563,3 +563,71 @@ describe('spec:renderer', () => {
     expect(el.textContent).toContain('the API host')
   })
 })
+
+// Block-mode overlay parity with the Tree: the schema form follows the config's
+// own field order, surfaces schema-external keys, marks missing schema fields,
+// and hints when the order drifts from the schema.
+describe('spec:renderer Block overlay parity (schema-external / missing / order)', () => {
+  const ovSchema = {
+    type: 'object',
+    properties: {
+      a: { type: 'string' },
+      b: { type: 'string' },
+      c: { type: 'string' },
+    },
+  }
+  function buildMove(schema: unknown, value: unknown) {
+    const r = parseSchema(schema)
+    if (!r.ok) throw new Error('bad schema: ' + r.error)
+    const moves: Array<{ path: string[]; delta: number }> = []
+    const el = renderForm(
+      r.root,
+      value,
+      [],
+      () => {},
+      (path, delta) => moves.push({ path, delta }),
+    )
+    return { el, moves }
+  }
+
+  test('renders present fields in the config’s key order, not the schema order', () => {
+    const { el } = build(ovSchema, { c: '3', a: '1' }) // config order: c, a
+    const labels = [...el.querySelectorAll('label .field-name')].map((n) =>
+      (n.textContent ?? '').replace(' *', ''),
+    )
+    // c before a (config order); b appended last as the missing field
+    expect(labels).toEqual(['c', 'a', 'b'])
+  })
+
+  test('a schema-external key renders as a badged raw-JSON field', () => {
+    const { el } = build(ovSchema, { a: '1', extra: { deep: true } })
+    const external = el.querySelector('.field.field-external')
+    expect(external).toBeTruthy()
+    expect(external?.querySelector('.field-badge--ext')?.textContent).toBe('not in schema')
+    expect(external?.textContent).toContain('extra')
+  })
+
+  test('a schema field the config omits is appended and marked not-set', () => {
+    const { el } = build(ovSchema, { a: '1', b: '2' }) // c omitted
+    const notSet = el.querySelector('.field.field-not-set')
+    expect(notSet).toBeTruthy()
+    expect(notSet?.querySelector('label .field-name')?.textContent?.replace(' *', '')).toBe('c')
+  })
+
+  test('order drift raises the distinct order badge; matching order does not', () => {
+    const drift = build(ovSchema, { b: '2', a: '1', c: '3' }) // b before a
+    expect(drift.el.querySelector('.field-badge--order')).toBeTruthy()
+    const ordered = build(ovSchema, { a: '1', b: '2', c: '3' })
+    expect(ordered.el.querySelector('.field-badge--order')).toBeNull()
+  })
+
+  test('with onMove, each present + missing field gets ↑↓ controls emitting its path', () => {
+    const { el, moves } = buildMove(ovSchema, { a: '1', b: '2' })
+    const controls = el.querySelectorAll('.form-move')
+    // a, b (present) + c (missing) = 3 movable rows
+    expect(controls.length).toBe(3)
+    const firstUp = el.querySelector('.form-move .form-move-btn') as HTMLButtonElement
+    firstUp.click()
+    expect(moves.at(-1)).toEqual({ path: ['a'], delta: -1 })
+  })
+})

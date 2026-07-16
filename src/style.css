@@ -1637,6 +1637,46 @@ footer {
   border: 1px dashed var(--border-strong);
 }
 
+/* Block-mode overlay parity with the Tree: the schema-driven form now also shows
+   schema-external keys, missing schema fields, and an order-mismatch hint — each
+   in its own color so the three conditions never read as the same warning. */
+.field-badge {
+  margin-inline-start: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  vertical-align: middle;
+}
+/* "not in schema" — amber, same attention color as the Tree's extra-key mark */
+.field-badge--ext {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+}
+/* "order ≠ schema" — accent/blue, DELIBERATELY distinct from the amber extras
+   and the muted missing fields, so field-order drift is its own signal. */
+.field-badge--order {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* a schema-external key rendered as raw JSON: faint amber rail marks it foreign */
+.field.field-external {
+  border-left: 3px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  padding-left: 0.6rem;
+}
+/* a schema field the config does not set yet: greyed + dashed, brightens on hover
+   (mirrors the Tree's .jt-missing affordance). */
+.field.field-not-set {
+  opacity: 0.6;
+  border-left: 3px dashed var(--border-strong);
+  padding-left: 0.6rem;
+}
+.field.field-not-set:hover {
+  opacity: 1;
+}
+
 /* compact fields: separation is the grid's job, not padding. The input column is
    bounded and the grid starts (doesn't stretch), so controls stay their natural
    size instead of sprawling full-width. Padding stays minimal. */

@@ -4,6 +4,7 @@
 // place, so re-validating on every edit never recreates the input the user is
 // interacting with (fixes slider-drag / text-caret jank — REQ-R16).
 import type { ArrayField, FieldError, FieldNode, FieldPath, ObjectField } from './types'
+import { keyOrderMatchesSchema } from './treeOverlay'
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
@@ -11,19 +12,34 @@ export type OnChange = (path: FieldPath, value: unknown) => void
 // mirror of the Tree ↑↓). The shell moves the config key and re-renders.
 export type OnMove = (path: FieldPath, delta: number) => void
 
-// Render an object's children in the config's own key order (present keys first,
-// then schema-declared-but-absent keys in schema order) so a ↑↓ move is visible —
-// consistent with the Tree editor's file-order model.
-function orderChildrenByConfig(children: FieldNode[], value: unknown): FieldNode[] {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return children
-  const rank = new Map(Object.keys(value).map((k, i) => [k, i]))
-  const present: FieldNode[] = []
-  const absent: FieldNode[] = []
-  for (const child of children) {
-    ;(rank.has(child.path.at(-1)!) ? present : absent).push(child)
-  }
-  present.sort((a, b) => rank.get(a.path.at(-1)!)! - rank.get(b.path.at(-1)!)!)
-  return [...present, ...absent]
+const isObjValue = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+function pill(text: string, cls: string, title?: string): HTMLElement {
+  const s = document.createElement('span')
+  s.className = cls
+  s.textContent = text
+  if (title) s.title = title
+  return s
+}
+
+// A config key the schema does not describe: editable as raw JSON, badged so the
+// user sees it is outside the schema (mirrors the Tree's "not in schema").
+function externalFieldRow(
+  parentPath: FieldPath,
+  key: string,
+  value: unknown,
+  onChange: OnChange,
+): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'field field-external'
+  const label = document.createElement('label')
+  const name = document.createElement('span')
+  name.className = 'field-name'
+  name.textContent = key
+  label.append(name, pill('not in schema', 'field-badge field-badge--ext'))
+  wrap.append(label, jsonValueEditor(value, (v) => onChange([...parentPath, key], v)))
+  return wrap
 }
 
 function moveControl(path: FieldPath, onMove: OnMove): HTMLElement {
@@ -355,16 +371,46 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange, onMove
     if (desc) box.appendChild(desc)
     // REQ-R06: errors targeting the object node itself land here (root included).
     box.appendChild(errBox(field.path))
-    for (const child of orderChildrenByConfig(field.children, value)) {
-      const childEl = renderNode(child, getAt(value, [child.path.at(-1)!]), onChange, onMove)
-      if (onMove) {
-        const row = document.createElement('div')
-        row.className = 'form-child'
-        row.append(childEl, moveControl(child.path, onMove))
-        box.appendChild(row)
-      } else {
-        box.appendChild(childEl)
+
+    const cfgKeys = isObjValue(value) ? Object.keys(value) : []
+    const cfgSet = new Set(cfgKeys)
+    const childByKey = new Map(field.children.map((c) => [c.path.at(-1)!, c]))
+    const schemaKeys = field.children.map((c) => c.path.at(-1)!)
+
+    // Field order differs from the schema's recommended order — a DISTINCT
+    // warning color from "not in schema" / "not set".
+    if (!keyOrderMatchesSchema(cfgKeys, schemaKeys)) {
+      const badge = pill('order ≠ schema', 'field-badge field-badge--order',
+        'Field order differs from the schema’s recommended order. Use ↑↓ to reorder.')
+      if (isRoot) box.appendChild(badge)
+      else box.querySelector('legend')?.appendChild(badge)
+    }
+
+    const appendRow = (el: HTMLElement, path: FieldPath): void => {
+      if (!onMove) {
+        box.appendChild(el)
+        return
       }
+      const row = document.createElement('div')
+      row.className = 'form-child'
+      row.append(el, moveControl(path, onMove))
+      box.appendChild(row)
+    }
+
+    // Present: the config's own key order, mixing schema fields and
+    // schema-external keys (REQ: follow current field order, show extras too).
+    for (const key of cfgKeys) {
+      const child = childByKey.get(key)
+      if (child) appendRow(renderNode(child, getAt(value, [key]), onChange, onMove), child.path)
+      else appendRow(externalFieldRow(field.path, key, (value as Record<string, unknown>)[key], onChange), [...field.path, key])
+    }
+    // Missing: schema fields absent from the config, appended and warned.
+    for (const child of field.children) {
+      const key = child.path.at(-1)!
+      if (cfgSet.has(key)) continue
+      const el = renderNode(child, getAt(value, [key]), onChange, onMove)
+      el.classList.add('field-not-set')
+      appendRow(el, child.path)
     }
     return box
   }
