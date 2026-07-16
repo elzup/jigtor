@@ -160,37 +160,51 @@ describe('integration: example config + schema', () => {
   })
 })
 
-describe('preview diff: key-order false-diff regression', () => {
-  // Mirrors the fillWholeFileDiff fix: when state.config and state.original hold
-  // the same values but in different key insertion order (e.g. after a project
-  // reconnect where the on-disk baseline has a different ordering than the
-  // in-memory edits), the line diff must show NO changes. Without orderLike
-  // normalisation the raw JSON.stringify outputs differ and every key appears as
-  // both removed and added.
-  function previewLines(original: unknown, config: unknown): ReturnType<typeof lineDiff> {
-    const before = JSON.stringify(original, null, 2).split('\n')
-    const after = JSON.stringify(orderLike(config, original), null, 2).split('\n')
+describe('preview diff: canonical-order model (intentional move shows, reconnect hidden)', () => {
+  // Mirrors the new fillWholeFileDiff: the config (after) is shown in its OWN key
+  // order, while the baseline (before) is realigned to the canonical (load/save)
+  // order. So an intentional ↑↓ move (config order != canonical) shows in the
+  // diff, but an incidental on-disk reorder after reconnect (only `original`'s
+  // order differs from canonical) does NOT.
+  function previewLines(
+    original: unknown,
+    config: unknown,
+    canonical: unknown,
+  ): ReturnType<typeof lineDiff> {
+    const before = JSON.stringify(orderLike(original, canonical), null, 2).split('\n')
+    const after = JSON.stringify(config, null, 2).split('\n')
     return lineDiff(before, after)
   }
 
-  test('same values, different key order => no diff lines', () => {
+  test('reconnect: on-disk baseline reordered, config unchanged => no diff lines', () => {
+    const canonical = { a: 1, b: 2, c: 3 } // load-time order
+    const config = { a: 1, b: 2, c: 3 } // unchanged, still canonical order
+    const original = { c: 3, a: 1, b: 2 } // re-read from disk in a different order
+    const rows = previewLines(original, config, canonical)
+    expect(rows.every((r) => r.kind === 'same')).toBe(true)
+  })
+
+  test('reconnect: nested objects reordered on disk => no diff lines', () => {
+    const canonical = { x: { p: 'foo', q: 'bar' }, y: 1 }
+    const config = { x: { p: 'foo', q: 'bar' }, y: 1 }
+    const original = { y: 1, x: { q: 'bar', p: 'foo' } } // both levels reordered on disk
+    const rows = previewLines(original, config, canonical)
+    expect(rows.every((r) => r.kind === 'same')).toBe(true)
+  })
+
+  test('intentional ↑↓ move: config reordered vs canonical => diff shows it', () => {
+    const canonical = { a: 1, b: 2, c: 3 }
     const original = { a: 1, b: 2, c: 3 }
-    const config = { c: 3, a: 1, b: 2 } // same values, different order
-    const rows = previewLines(original, config)
-    expect(rows.every((r) => r.kind === 'same')).toBe(true)
+    const config = { b: 2, a: 1, c: 3 } // user moved b up
+    const rows = previewLines(original, config, canonical)
+    expect(rows.some((r) => r.kind !== 'same')).toBe(true)
   })
 
-  test('same values, nested objects with different key order => no diff lines', () => {
-    const original = { x: { p: 'foo', q: 'bar' }, y: 1 }
-    const config = { y: 1, x: { q: 'bar', p: 'foo' } } // both levels reordered
-    const rows = previewLines(original, config)
-    expect(rows.every((r) => r.kind === 'same')).toBe(true)
-  })
-
-  test('actual value change still shows as diff even after key-order normalisation', () => {
+  test('value change still shows as a diff', () => {
+    const canonical = { a: 1, b: 2 }
     const original = { a: 1, b: 2 }
-    const config = { b: 99, a: 1 } // b changed, keys reordered
-    const rows = previewLines(original, config)
+    const config = { a: 1, b: 99 } // b changed
+    const rows = previewLines(original, config, canonical)
     expect(rows.some((r) => r.kind !== 'same')).toBe(true)
   })
 })

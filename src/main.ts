@@ -26,6 +26,7 @@ import {
   jsonRenameKey,
   jsonInsert,
   jsonMoveItem,
+  jsonMoveKey,
   type JsonPath,
   type JsonType,
 } from './core/jsonEdit'
@@ -65,8 +66,12 @@ type State = {
   config: unknown
   original: unknown
   originalSchema: unknown | null
+  // Key order the user intends, captured at load and updated on save (NOT on a
+  // reconnect re-read). Used to tell an intentional ↑↓ move (persist + show in
+  // diff) from an incidental on-disk order difference after reconnect (hide).
+  canonical: unknown
 }
-const state: State = { schema: null, config: {}, original: {}, originalSchema: null }
+const state: State = { schema: null, config: {}, original: {}, originalSchema: null, canonical: {} }
 
 const clone = (v: unknown): unknown => JSON.parse(JSON.stringify(v ?? null))
 
@@ -535,13 +540,13 @@ function updateDirty(): void {
 // file is shown, with every line since the loaded/saved baseline marked as
 // added / removed / unchanged so pending edits are visible in place before save.
 function fillWholeFileDiff(target: HTMLElement): void {
-  const before = (JSON.stringify(state.original, null, 2) ?? 'null').split('\n')
-  // Normalise key order before diffing so the preview matches what will be
-  // written to disk (saveConfig also calls orderLike before serialising).
-  // Without this, a config whose keys are in a different insertion order than
-  // state.original (e.g. after a project reconnect or tree-editor reorder)
-  // shows spurious add/remove diff lines even when no values changed.
-  const after = (JSON.stringify(orderLike(state.config, state.original), null, 2) ?? 'null').split('\n')
+  // The config (after) is shown in its OWN key order so an intentional ↑↓ move
+  // is visible in the diff and will be saved. The baseline (before) is realigned
+  // to the canonical (load/save-time) order, so an incidental on-disk order
+  // difference after a project reconnect does NOT show as spurious add/remove
+  // lines — only order changes the user actually made appear.
+  const before = (JSON.stringify(orderLike(state.original, state.canonical), null, 2) ?? 'null').split('\n')
+  const after = (JSON.stringify(state.config, null, 2) ?? 'null').split('\n')
   const frag = document.createDocumentFragment()
   for (const row of lineDiff(before, after)) {
     const line = document.createElement('span')
@@ -698,6 +703,7 @@ function buildForm(): void {
   // before an in-session schema apply/infer are preserved (FIND-R8).
   if (!baselineEstablished) {
     state.original = clone(state.config)
+    state.canonical = clone(state.config) // load-time key order is the canonical order
     baselineEstablished = true
   } else {
     // In-session schema apply/infer may seed NEW defaulted fields. applyDefaults
@@ -1063,8 +1069,10 @@ function treeContentZone(
     dot.title = isContainer ? 'subtree changed since last save' : 'changed since last save'
     zc.append(dot)
   }
-  // Array-item reorder lives here (it's about position, not editing).
+  // Reorder controls live here (position, not editing). Array items move by
+  // index; object keys move among their siblings within the SAME parent only.
   if (opts.inArray) zc.append(treeMove(path))
+  else if (!opts.root && path.length > 0) zc.append(treeMoveKey(path))
   return zc
 }
 
@@ -1102,6 +1110,20 @@ function treeMove(path: JsonPath): HTMLElement {
   const move = metaSpan('', 'jt-move')
   const up = svgIconButton(ICON.up, 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1)))
   const down = svgIconButton(ICON.down, 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1)))
+  up.classList.add('jt-mv')
+  down.classList.add('jt-mv')
+  move.append(up, down)
+  return move
+}
+
+// Object-key reorder: swap the key with its previous/next sibling within the
+// same parent object. Never crosses into a nested object or up a level.
+function treeMoveKey(path: JsonPath): HTMLElement {
+  const key = String(path[path.length - 1])
+  const parentPath = path.slice(0, -1)
+  const move = metaSpan('', 'jt-move')
+  const up = svgIconButton(ICON.up, 'move up', () => applyTreeEdit(jsonMoveKey(state.config, parentPath, key, -1)))
+  const down = svgIconButton(ICON.down, 'move down', () => applyTreeEdit(jsonMoveKey(state.config, parentPath, key, 1)))
   up.classList.add('jt-mv')
   down.classList.add('jt-mv')
   move.append(up, down)
@@ -2192,9 +2214,9 @@ async function writeProjectMetadata(): Promise<void> {
 }
 
 async function saveConfig(): Promise<'direct' | 'download'> {
-  // Keep the original file's key order on disk (new keys appended), independent
-  // of how the value was edited. state.original holds the loaded/last-saved order.
-  state.config = orderLike(state.config, state.original)
+  // Write the config in its OWN key order: value edits preserve order (jsonSet /
+  // setAt rebuild in place) and an intentional ↑↓ move is a real reorder we want
+  // to persist. No orderLike normalisation here — that would erase moves.
   if (projectDirectoryHandle !== null && configFileHandle !== null) {
     if (!(await ensureWritablePermission(configFileHandle))) {
       throw new Error('write permission was not granted')
@@ -2217,6 +2239,7 @@ function markSaved(): void {
   persistHistory()
   renderHistoryTab()
   state.original = clone(state.config) // new baseline after a save
+  state.canonical = clone(state.config) // the saved key order becomes canonical
   state.originalSchema = clone(state.schema)
   saveDialog.hidden = true
   updateDirty()

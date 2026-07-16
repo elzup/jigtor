@@ -148,3 +148,27 @@ export function jsonMoveItem(
   next.splice(target, 0, item)
   return jsonSet(root, arrayPath, next)
 }
+
+// Move an object key one slot toward its previous/next sibling WITHIN the same
+// parent object. Reorders keys only — never crosses into a nested object or up
+// into the parent's parent (a nested key can't escape its level). No-op at the
+// ends, on a missing key, or when the parent is not a plain object.
+export function jsonMoveKey(
+  root: unknown,
+  parentPath: JsonPath,
+  key: string,
+  delta: number,
+): unknown {
+  const parent = jsonGet(root, parentPath)
+  if (!isPlainObject(parent)) return root
+  const keys = Object.keys(parent)
+  const index = keys.indexOf(key)
+  if (index < 0) return root
+  const target = index + delta
+  if (target < 0 || target >= keys.length) return root
+  const order = keys.slice()
+  ;[order[index], order[target]] = [order[target]!, order[index]!]
+  const next: Record<string, unknown> = {}
+  for (const k of order) next[k] = parent[k]
+  return jsonSet(root, parentPath, next)
+}

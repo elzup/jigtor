@@ -5,21 +5,22 @@ const keys = (cfg: string[], schema: string[] | null) =>
   orderedChildSlots(cfg, schema).map((s) => s.key)
 
 describe('orderedChildSlots', () => {
-  test('no schema: config order, all present (unchanged behaviour)', () => {
+  test('no schema: config order, all present', () => {
     expect(orderedChildSlots(['b', 'a'], null)).toEqual([
       { key: 'b', presence: 'present' },
       { key: 'a', presence: 'present' },
     ])
   })
 
-  test('present keys follow schema order, not config order (REQ-TO01)', () => {
+  test('present keys keep CONFIG order, not schema order (file order is truth)', () => {
+    // The user arranges key order via ↑↓ move, so config order wins.
     expect(orderedChildSlots(['b', 'a'], ['a', 'b'])).toEqual([
-      { key: 'a', presence: 'present' },
       { key: 'b', presence: 'present' },
+      { key: 'a', presence: 'present' },
     ])
   })
 
-  test('schema keys absent from config are marked missing, in schema order (REQ-TO02)', () => {
+  test('schema keys absent from config are appended as missing, in schema order (REQ-TO02)', () => {
     expect(orderedChildSlots(['a'], ['a', 'b', 'c'])).toEqual([
       { key: 'a', presence: 'present' },
       { key: 'b', presence: 'missing' },
@@ -27,26 +28,12 @@ describe('orderedChildSlots', () => {
     ])
   })
 
-  test('config-only keys come after schema keys, in config order', () => {
-    expect(orderedChildSlots(['a', 'z', 'y'], ['a'])).toEqual([
+  test('config keys not in schema still render (present), before the missing ones', () => {
+    expect(orderedChildSlots(['a', 'z', 'y'], ['a', 'b'])).toEqual([
       { key: 'a', presence: 'present' },
-      { key: 'z', presence: 'extra' },
-      { key: 'y', presence: 'extra' },
-    ])
-  })
-
-  test('display order is stable regardless of config key order (add/delete safety, REQ-TO01)', () => {
-    const schema = ['host', 'port', 'tls']
-    expect(keys(['tls', 'host'], schema)).toEqual(['host', 'port', 'tls'])
-    expect(keys(['host', 'tls'], schema)).toEqual(['host', 'port', 'tls'])
-    expect(keys(['port', 'tls', 'host'], schema)).toEqual(['host', 'port', 'tls'])
-  })
-
-  test('mixed present / missing / extra in one object', () => {
-    expect(orderedChildSlots(['x', 'a'], ['a', 'b'])).toEqual([
-      { key: 'a', presence: 'present' },
+      { key: 'z', presence: 'present' },
+      { key: 'y', presence: 'present' },
       { key: 'b', presence: 'missing' },
-      { key: 'x', presence: 'extra' },
     ])
   })
 
@@ -55,5 +42,11 @@ describe('orderedChildSlots', () => {
       { key: 'a', presence: 'missing' },
       { key: 'b', presence: 'missing' },
     ])
+  })
+
+  test('a moved key is reflected because config order is preserved (REQ-TO01)', () => {
+    const schema = ['host', 'port', 'tls']
+    // user moved tls to the front — display follows config order
+    expect(keys(['tls', 'host', 'port'], schema)).toEqual(['tls', 'host', 'port'])
   })
 })

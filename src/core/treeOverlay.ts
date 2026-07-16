@@ -1,13 +1,13 @@
 // spec:tree-overlay — order an object's Tree-view children by overlaying the
-// governing schema on the config instance, so the display order is stable and
-// schema-declared-but-absent keys are visible.
+// governing schema on the config instance.
 //
-// Order: schema properties first, in their declared order (each marked 'present'
-// when the config has it, 'missing' when it does not), then config-only ("extra")
-// keys in insertion order. Without a governing schema every config key passes
-// through in insertion order, all 'present' — i.e. the pre-overlay behaviour.
+// The config file's own key order is the source of truth (the user arranges it
+// via ↑↓ move, mirroring arrays), so 'present' keys keep config insertion order.
+// Schema properties absent from the config are appended as 'missing' rows in
+// schema order, so the user can see (and add) what the schema expects. Without a
+// governing schema every config key passes through in insertion order.
 
-export type ChildPresence = 'present' | 'missing' | 'extra'
+export type ChildPresence = 'present' | 'missing'
 
 export type ChildSlot = { key: string; presence: ChildPresence }
 
@@ -15,17 +15,11 @@ export function orderedChildSlots(
   configKeys: string[],
   schemaKeys: string[] | null,
 ): ChildSlot[] {
-  if (schemaKeys === null) {
-    return configKeys.map((key) => ({ key, presence: 'present' }))
-  }
-  const present = new Set(configKeys)
-  const inSchema = new Set(schemaKeys)
-  const slots: ChildSlot[] = schemaKeys.map((key) => ({
-    key,
-    presence: present.has(key) ? 'present' : 'missing',
-  }))
-  for (const key of configKeys) {
-    if (!inSchema.has(key)) slots.push({ key, presence: 'extra' })
-  }
-  return slots
+  const present: ChildSlot[] = configKeys.map((key) => ({ key, presence: 'present' }))
+  if (schemaKeys === null) return present
+  const inConfig = new Set(configKeys)
+  const missing: ChildSlot[] = schemaKeys
+    .filter((key) => !inConfig.has(key))
+    .map((key) => ({ key, presence: 'missing' }))
+  return [...present, ...missing]
 }

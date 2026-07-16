@@ -9,6 +9,7 @@ import {
   jsonRenameKey,
   jsonInsert,
   jsonMoveItem,
+  jsonMoveKey,
 } from '../src/core/jsonEdit'
 
 describe('valueType', () => {
@@ -84,5 +85,32 @@ describe('jsonMoveItem', () => {
     expect(jsonMoveItem({ xs: [1, 2, 3] }, ['xs'], 0, 1)).toEqual({ xs: [2, 1, 3] })
     const root = { xs: [1, 2, 3] }
     expect(jsonMoveItem(root, ['xs'], 0, -1)).toBe(root)
+  })
+})
+
+describe('jsonMoveKey', () => {
+  const keys = (o: unknown) => Object.keys(o as object)
+
+  it('swaps an object key with its next/previous sibling, preserving values', () => {
+    const root = { a: 1, b: 2, c: 3 }
+    const down = jsonMoveKey(root, [], 'a', 1)
+    expect(keys(down)).toEqual(['b', 'a', 'c'])
+    expect(down).toEqual({ b: 2, a: 1, c: 3 })
+    expect(keys(jsonMoveKey(root, [], 'c', -1))).toEqual(['a', 'c', 'b'])
+  })
+
+  it('no-ops at the ends, on a missing key, or on a non-object parent', () => {
+    const root = { a: 1, b: 2 }
+    expect(jsonMoveKey(root, [], 'a', -1)).toBe(root)
+    expect(jsonMoveKey(root, [], 'b', 1)).toBe(root)
+    expect(jsonMoveKey(root, [], 'zzz', 1)).toBe(root)
+    expect(jsonMoveKey({ xs: [1, 2] }, ['xs'], '0', 1)).toEqual({ xs: [1, 2] })
+  })
+
+  it('reorders only within the same parent — a nested key cannot escape its level', () => {
+    const root = { outer: { x: 1, y: 2 }, z: 3 }
+    const moved = jsonMoveKey(root, ['outer'], 'x', 1)
+    expect(keys(moved)).toEqual(['outer', 'z']) // top level untouched
+    expect(keys((moved as { outer: object }).outer)).toEqual(['y', 'x'])
   })
 })
