@@ -534,7 +534,12 @@ function updateDirty(): void {
 // added / removed / unchanged so pending edits are visible in place before save.
 function fillWholeFileDiff(target: HTMLElement): void {
   const before = (JSON.stringify(state.original, null, 2) ?? 'null').split('\n')
-  const after = (JSON.stringify(state.config, null, 2) ?? 'null').split('\n')
+  // Normalise key order before diffing so the preview matches what will be
+  // written to disk (saveConfig also calls orderLike before serialising).
+  // Without this, a config whose keys are in a different insertion order than
+  // state.original (e.g. after a project reconnect or tree-editor reorder)
+  // shows spurious add/remove diff lines even when no values changed.
+  const after = (JSON.stringify(orderLike(state.config, state.original), null, 2) ?? 'null').split('\n')
   const frag = document.createDocumentFragment()
   for (const row of lineDiff(before, after)) {
     const line = document.createElement('span')
