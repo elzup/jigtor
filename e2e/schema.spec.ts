@@ -17,8 +17,12 @@ test.describe('Schema tab', () => {
     await loadExample(page)
     await expect(page.locator('#panel-edit')).toBeVisible()
 
-    await page.locator('.tab[data-tab="history"]').click()
-    await expect(page.locator('#panel-history')).toBeVisible()
+    // Edit + Schema show for a loaded config+schema; History stays hidden until
+    // there is save history (state-gated tabs, spec:open-flow REQ-OF06).
+    await expect(page.locator('.tab[data-tab="history"]')).toHaveCount(0)
+
+    await page.locator('.tab[data-tab="schema"]').click()
+    await expect(page.locator('#panel-schema')).toBeVisible()
     await expect(page.locator('#panel-edit')).toBeHidden()
 
     await page.locator('.tab[data-tab="edit"]').click()

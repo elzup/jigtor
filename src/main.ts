@@ -1983,7 +1983,7 @@ async function openProjectFolder(mode: ProjectConnectionMode): Promise<boolean> 
     // A folder with no JSON isn't a project: clear any previously-shown tree so
     // the stale explorer + edit state don't imply this empty folder is loaded.
     exitProjectMode()
-    status.textContent = 'No .json files in this folder. Add a config.json, or use "Other sources" to import one.'
+    status.textContent = 'No .json files in this folder. Add a config.json and open the folder again.'
     status.className = 'status error'
     return false
   }
