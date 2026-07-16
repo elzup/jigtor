@@ -369,6 +369,7 @@ const treeControls = app.querySelector<HTMLElement>('#tree-controls')!
 const modeBlock = app.querySelector<HTMLDivElement>('#mode-block')!
 const modeTree = app.querySelector<HTMLDivElement>('#mode-tree')!
 const compactToggle = app.querySelector<HTMLInputElement>('#compact-mode')!
+const compactToggleLabel = app.querySelector<HTMLLabelElement>('.compact-toggle')!
 
 function setReconnectGate(isOpen: boolean): void {
   reconnectGate.hidden = !isOpen
@@ -398,6 +399,7 @@ function setEditMode(mode: 'block' | 'tree'): void {
   modeBlock.hidden = mode !== 'block'
   modeTree.hidden = mode !== 'tree'
   treeControls.hidden = mode !== 'tree' // the controls panel sits beside the Live diff
+  compactToggleLabel.hidden = mode === 'tree' // "Compact fields" only applies to the Block form
   app.querySelectorAll<HTMLButtonElement>('.mode-switch .mode').forEach((b) =>
     b.classList.toggle('active', b.dataset.mode === mode),
   )

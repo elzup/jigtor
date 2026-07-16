@@ -1338,7 +1338,7 @@ input.toggle:checked::after {
 .jt-move {
   display: inline-flex;
   gap: 0.1rem;
-  margin-left: 0.2rem;
+  margin-left: auto; /* right-align the ↑↓ within the content zone (zone1) */
   flex: none;
 }
 
