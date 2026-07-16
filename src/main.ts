@@ -977,8 +977,14 @@ function treeContentZone(
   }
   const ext = schemaExtBadge(path, opts.inArray)
   if (ext) zc.append(ext)
-  if (isContainer && JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
-    zc.append(metaSpan('●', 'jt-dot')) // subtree changed since baseline
+  // Changed-since-baseline marker. Containers get it when their subtree differs;
+  // leaves get it when their own value differs — so the change is visible ON the
+  // field that changed, not only on its ancestor object (which was the only thing
+  // marked before, making it impossible to tell WHICH leaf changed).
+  if (JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
+    const dot = metaSpan('●', 'jt-dot')
+    dot.title = isContainer ? 'subtree changed since last save' : 'changed since last save'
+    zc.append(dot)
   }
   // Array-item reorder lives here (it's about position, not editing).
   if (opts.inArray) zc.append(treeMove(path))
