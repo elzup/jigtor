@@ -7,6 +7,41 @@ import type { ArrayField, FieldError, FieldNode, FieldPath, ObjectField } from '
 
 export type OnChange = (path: FieldPath, value: unknown) => void
 
+// Reorder an object property among its siblings within the same parent (Block
+// mirror of the Tree ↑↓). The shell moves the config key and re-renders.
+export type OnMove = (path: FieldPath, delta: number) => void
+
+// Render an object's children in the config's own key order (present keys first,
+// then schema-declared-but-absent keys in schema order) so a ↑↓ move is visible —
+// consistent with the Tree editor's file-order model.
+function orderChildrenByConfig(children: FieldNode[], value: unknown): FieldNode[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return children
+  const rank = new Map(Object.keys(value).map((k, i) => [k, i]))
+  const present: FieldNode[] = []
+  const absent: FieldNode[] = []
+  for (const child of children) {
+    ;(rank.has(child.path.at(-1)!) ? present : absent).push(child)
+  }
+  present.sort((a, b) => rank.get(a.path.at(-1)!)! - rank.get(b.path.at(-1)!)!)
+  return [...present, ...absent]
+}
+
+function moveControl(path: FieldPath, onMove: OnMove): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'form-move'
+  const mk = (label: string, delta: number): HTMLButtonElement => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'form-move-btn'
+    b.setAttribute('aria-label', delta < 0 ? 'move up' : 'move down')
+    b.textContent = label
+    b.addEventListener('click', () => onMove(path, delta))
+    return b
+  }
+  wrap.append(mk('↑', -1), mk('↓', 1))
+  return wrap
+}
+
 // string fields whose maxLength reaches this render as a <textarea> (REQ-R12).
 const LONG_STRING_THRESHOLD = 80
 // string enums with at most this many options render as radios, else a <select>.
@@ -299,7 +334,7 @@ function arrayEditor(field: ArrayField, current: unknown, onValue: (v: unknown) 
   return editor
 }
 
-function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLElement {
+function renderNode(field: FieldNode, value: unknown, onChange: OnChange, onMove?: OnMove): HTMLElement {
   if (field.kind === 'object') {
     // REQ-R04: the ROOT object (depth 0) renders WITHOUT the fieldset/legend
     // chrome — it always wraps the whole form, so the extra box + "." legend is
@@ -320,8 +355,16 @@ function renderNode(field: FieldNode, value: unknown, onChange: OnChange): HTMLE
     if (desc) box.appendChild(desc)
     // REQ-R06: errors targeting the object node itself land here (root included).
     box.appendChild(errBox(field.path))
-    for (const child of field.children) {
-      box.appendChild(renderNode(child, getAt(value, [child.path.at(-1)!]), onChange))
+    for (const child of orderChildrenByConfig(field.children, value)) {
+      const childEl = renderNode(child, getAt(value, [child.path.at(-1)!]), onChange, onMove)
+      if (onMove) {
+        const row = document.createElement('div')
+        row.className = 'form-child'
+        row.append(childEl, moveControl(child.path, onMove))
+        box.appendChild(row)
+      } else {
+        box.appendChild(childEl)
+      }
     }
     return box
   }
@@ -563,10 +606,11 @@ export function renderForm(
   value: unknown,
   errors: FieldError[],
   onChange: OnChange,
+  onMove?: OnMove,
 ): HTMLElement {
   const form = document.createElement('form')
   form.className = 'jigtor-form'
-  form.appendChild(renderNode(root, value, onChange))
+  form.appendChild(renderNode(root, value, onChange, onMove))
   refreshErrors(form, errors)
   return form
 }

@@ -388,6 +388,36 @@ legend .field-name {
 }
 /* Each field is a clearly separated row: left accent rail + hairline divider,
    so adjacent fields (root-level included) never blur together. */
+/* Block field row + its ↑↓ move control (mirrors the Tree's same-parent move) */
+.form-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+.form-child > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.form-move {
+  display: inline-flex;
+  gap: 0.1rem;
+  flex: none;
+  margin-top: 0.75rem;
+}
+.form-move-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 4px;
+  width: 1.4rem;
+  height: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.form-move-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .field {
   display: flex;
   flex-direction: column;

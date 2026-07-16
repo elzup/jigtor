@@ -669,11 +669,23 @@ function buildForm(): void {
     return
   }
   state.config = applyDefaults(parsed.root as FieldNode, state.config)
-  currentForm = renderForm(parsed.root, state.config, [], (path, value) => {
-    pushUndoCoalesced(path) // slider drag / keystroke burst -> one undo entry
-    state.config = setAt(state.config, path, value)
-    revalidate()
-  })
+  currentForm = renderForm(
+    parsed.root,
+    state.config,
+    [],
+    (path, value) => {
+      pushUndoCoalesced(path) // slider drag / keystroke burst -> one undo entry
+      state.config = setAt(state.config, path, value)
+      revalidate()
+    },
+    (path, delta) => {
+      // Block ↑↓: reorder the config key among its siblings (same as the Tree).
+      pushUndo(state.config)
+      state.config = jsonMoveKey(state.config, path.slice(0, -1), String(path.at(-1)), delta)
+      buildForm() // re-render in the new order (applyDefaults preserves key order)
+      revalidate()
+    },
+  )
   formHost.replaceChildren(currentForm)
   schemaEditor.value = JSON.stringify(state.schema, null, 2)
   // Capture the diff baseline (post default-seed) once per fresh data load, so
