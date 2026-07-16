@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { orderedChildSlots } from '../src/core/treeOverlay'
+import { orderedChildSlots, keyOrderMatchesSchema } from '../src/core/treeOverlay'
 
 const keys = (cfg: string[], schema: string[] | null) =>
   orderedChildSlots(cfg, schema).map((s) => s.key)
@@ -48,5 +48,28 @@ describe('orderedChildSlots', () => {
     const schema = ['host', 'port', 'tls']
     // user moved tls to the front — display follows config order
     expect(keys(['tls', 'host', 'port'], schema)).toEqual(['tls', 'host', 'port'])
+  })
+})
+
+describe('keyOrderMatchesSchema', () => {
+  test('same order matches', () => {
+    expect(keyOrderMatchesSchema(['a', 'b'], ['a', 'b'])).toBe(true)
+  })
+
+  test('different order does not match', () => {
+    expect(keyOrderMatchesSchema(['b', 'a'], ['a', 'b'])).toBe(false)
+  })
+
+  test('keys absent from schema are ignored', () => {
+    expect(keyOrderMatchesSchema(['a', 'x', 'b'], ['a', 'b'])).toBe(true)
+    expect(keyOrderMatchesSchema(['b', 'x', 'a'], ['a', 'b'])).toBe(false)
+  })
+
+  test('missing schema keys do not cause a mismatch (only relative order counts)', () => {
+    expect(keyOrderMatchesSchema(['a', 'c'], ['a', 'b', 'c'])).toBe(true)
+  })
+
+  test('empty config matches trivially', () => {
+    expect(keyOrderMatchesSchema([], ['a', 'b'])).toBe(true)
   })
 })

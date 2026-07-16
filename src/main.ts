@@ -31,7 +31,7 @@ import {
   type JsonType,
 } from './core/jsonEdit'
 import { resolveSchemaAt, resolveRawSchemaAt } from './core/schemaAt'
-import { orderedChildSlots } from './core/treeOverlay'
+import { orderedChildSlots, keyOrderMatchesSchema } from './core/treeOverlay'
 import { orderLike } from './core/orderLike'
 import {
   recordSnapshot,
@@ -720,6 +720,7 @@ function buildForm(): void {
 
 // ---- Tree (real edit) mode: schema-independent, Firestore-style JSON editor ----
 const collapsedPaths = new Set<string>() // pathKey -> collapsed (default expanded)
+const addingPaths = new Set<string>() // pathKey -> the object's "new key" input is revealed
 const pathKey = (path: JsonPath): string => JSON.stringify(path)
 // A path key that matches validateConfig's string[] paths (array indices come
 // back as strings there, but as numbers in a JsonPath), so Tree leaves can look
@@ -890,7 +891,12 @@ function treeContainerBody(container: unknown, path: JsonPath): HTMLElement {
       wrap.appendChild(treeEntry(slot.key, obj[slot.key], path, false))
     }
   }
-  wrap.appendChild(treeAddRow(container, path))
+  // The "new key" input is revealed on demand from the parent's + button (see
+  // treeAddKeyToggle). The root object has no header row to host that button, so
+  // its add-row stays always visible.
+  if (path.length === 0 || addingPaths.has(pathKey(path))) {
+    wrap.appendChild(treeAddRow(container, path))
+  }
   return wrap
 }
 
@@ -997,7 +1003,11 @@ function treeContainerRow(
   })
   const lead = metaSpan('', 'jt-lead')
   lead.appendChild(toggle)
-  header.append(treeContentZone(key, value, path, { inArray, lead, hasError: false }))
+  const zc = treeContentZone(key, value, path, { inArray, lead, hasError: false })
+  // Object headers carry the "+ key" reveal button to the right of the key, so a
+  // new-key input appears (indented) only on demand instead of a permanent row.
+  if (!Array.isArray(value)) zc.append(treeAddKeyToggle(path))
+  header.append(zc)
   header.append(treeRail(path, value, { panel: null, entries: [] }))
   li.appendChild(header)
   if (!collapsed) li.appendChild(treeContainerBody(value, path))
@@ -1053,6 +1063,8 @@ function treeContentZone(
   if (isContainer) {
     const count = Array.isArray(value) ? value.length : Object.keys(value as object).length
     zc.append(metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`, 'jt-count'))
+    const orderWarn = schemaOrderBadge(value, path)
+    if (orderWarn) zc.append(orderWarn)
   } else {
     zc.append(treeBasicValue(value, path, opts.hasError))
     const rich = treeRichValue(value, path)
@@ -1173,6 +1185,20 @@ function schemaExtBadge(path: JsonPath, inArray: boolean): HTMLElement | null {
   if (!parentGoverned) return null // an ancestor is already flagged
   const badge = metaSpan('not in schema', 'jt-schema-ext')
   badge.title = 'Not defined in the schema — editable, but the schema does not validate this key.'
+  return badge
+}
+
+// Soft hint when an object's schema-known keys are not in the schema's declared
+// order. File order stays valid — this only nudges toward the recommended order,
+// which the user can reach with the ↑↓ move buttons.
+function schemaOrderBadge(value: unknown, path: JsonPath): HTMLElement | null {
+  if (state.schema === null || Array.isArray(value) || typeof value !== 'object' || value === null) {
+    return null
+  }
+  const schemaKeys = objectSchemaKeys(resolveRawSchemaAt(state.schema, path))
+  if (schemaKeys === null || keyOrderMatchesSchema(Object.keys(value), schemaKeys)) return null
+  const badge = metaSpan('order ≠ schema', 'jt-order-warn')
+  badge.title = 'Key order differs from the schema’s recommended order. Use ↑↓ to reorder.'
   return badge
 }
 
@@ -1369,9 +1395,12 @@ function treeSlider(min: number, max: number, value: unknown, path: JsonPath): H
 }
 
 // "Add child" affordance under a container: a button (arrays) or key + button.
+// Indented to the child level (its own row would otherwise sit at the root).
 function treeAddRow(container: unknown, path: JsonPath): HTMLElement {
   const row = document.createElement('div')
   row.className = 'jt-row jt-add'
+  row.dataset.addpath = pathKey(path)
+  row.style.setProperty('--depth', String(path.length))
   row.appendChild(spacer())
   if (Array.isArray(container)) {
     row.appendChild(
@@ -1398,6 +1427,29 @@ function treeAddRow(container: unknown, path: JsonPath): HTMLElement {
   })
   row.append(keyInput, svgIconButton(ICON.plus, 'add key', add, ' key'))
   return row
+}
+
+// The + button on an object header: toggles the (indented) new-key input for
+// that object and focuses it, so keys are added from the parent row on demand.
+function treeAddKeyToggle(path: JsonPath): HTMLElement {
+  const key = pathKey(path)
+  const on = addingPaths.has(key)
+  const btn = svgIconButton(ICON.plus, on ? 'close new key' : 'add key', () => {
+    if (on) addingPaths.delete(key)
+    else addingPaths.add(key)
+    renderTree()
+    if (addingPaths.has(key)) {
+      for (const r of treeHost.querySelectorAll<HTMLElement>('.jt-add')) {
+        if (r.dataset.addpath === key) {
+          r.querySelector('input')?.focus()
+          break
+        }
+      }
+    }
+  })
+  btn.classList.add('jt-addkey')
+  if (on) btn.classList.add('active')
+  return btn
 }
 
 // Flat inline SVG action button with an optional text label.

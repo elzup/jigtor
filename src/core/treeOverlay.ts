@@ -23,3 +23,15 @@ export function orderedChildSlots(
     .map((key) => ({ key, presence: 'missing' }))
   return [...present, ...missing]
 }
+
+// True when the config's schema-known keys appear in the same relative order the
+// schema declares them (keys absent from the schema are ignored). Used to surface
+// a soft "order differs from schema" hint — file order is still valid, just not
+// the schema's recommended order.
+export function keyOrderMatchesSchema(configKeys: string[], schemaKeys: string[]): boolean {
+  const schemaSet = new Set(schemaKeys)
+  const known = configKeys.filter((key) => schemaSet.has(key))
+  const knownSet = new Set(known)
+  const expected = schemaKeys.filter((key) => knownSet.has(key))
+  return known.length === expected.length && known.every((key, i) => key === expected[i])
+}
