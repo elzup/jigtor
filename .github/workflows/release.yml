@@ -116,6 +116,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
+          # Invoke the local CLI via npx so the Windows runner resolves it —
+          # `npm run tauri` (the default) runs the bare `tauri` script, which is
+          # not on PATH there ("'tauri' is not recognized").
+          tauriScript: npx tauri
           tagName: ${{ github.ref_name }}
           releaseName: "jigtor ${{ github.ref_name }}"
           args: ${{ matrix.args }}

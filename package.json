@@ -1,6 +1,6 @@
 {
   "name": "jigtor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first, schema-driven config.json editor",
   "type": "module",
   "license": "MIT",
