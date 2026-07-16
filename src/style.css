@@ -1272,33 +1272,60 @@ input.toggle:checked::after {
   accent-color: var(--accent);
   margin: 0;
 }
-/* boolean toggle switch — pure background (sliding radial-gradient knob), no absolute */
+/* boolean on/off switch: a <label> track + a real knob <span>. The knob is a
+   genuine element (not a pseudo-element on a replaced <input>), so it paints and
+   slides reliably across browsers. */
 .jt-sw {
-  appearance: none;
-  -webkit-appearance: none;
+  position: relative;
+  display: inline-flex;
   flex: none;
-  margin: 0;
+  align-items: center;
+  box-sizing: border-box;
   width: 2rem;
   height: 1.15rem;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
-  background-color: var(--surface-2);
-  background-image: radial-gradient(circle at 50% 50%, #fff 0 0.4rem, transparent 0.43rem);
-  background-size: 1.15rem 100%;
-  background-position: 0 center;
-  background-repeat: no-repeat;
+  background: var(--surface-2);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    background-position 0.15s;
+    background 0.15s,
+    border-color 0.15s;
 }
-.jt-sw:checked {
-  background-color: var(--accent);
+.jt-sw:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.jt-sw-in {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.jt-sw-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.12rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  background: #fff;
+  transform: translateY(-50%);
+  transition: transform 0.15s;
+  pointer-events: none;
+}
+.jt-sw:has(.jt-sw-in:checked) {
+  background: var(--accent);
   border-color: var(--accent);
-  background-position: 0.85rem center;
+}
+.jt-sw:has(.jt-sw-in:checked) .jt-sw-knob {
+  transform: translate(0.85rem, -50%);
 }
 @media (prefers-reduced-motion: reduce) {
-  .jt-sw {
+  .jt-sw,
+  .jt-sw-knob {
     transition: none;
   }
 }

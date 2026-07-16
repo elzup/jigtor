@@ -1148,22 +1148,12 @@ function treeTypeChip(value: unknown): HTMLElement {
 function treeBasicValue(value: unknown, path: JsonPath, hasError: boolean): HTMLElement {
   const type = valueType(value)
   if (type === 'null') return metaSpan('null', 'jt-null')
+  // A boolean's basic value IS the on/off switch — no redundant true/false text
+  // field beside it. One control, and it renders reliably (see treeBoolSwitch).
+  if (type === 'boolean') return treeBoolSwitch(value, path)
   const input = document.createElement('input')
   input.setAttribute('aria-label', 'value')
   if (hasError) input.classList.add('jt-invalid')
-  if (type === 'boolean') {
-    input.className = 'jt-value jt-vbool'
-    input.value = String(value)
-    input.addEventListener('change', () => {
-      const t = input.value.trim().toLowerCase()
-      if (t !== 'true' && t !== 'false') {
-        input.value = String(value) // reject non-boolean text; keep the toggle in sync
-        return
-      }
-      applyTreeEdit(jsonSet(state.config, path, t === 'true'))
-    })
-    return input
-  }
   const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
   const isEnum = sub !== null && Array.isArray(sub.enum)
   input.className = type === 'number' ? 'jt-value jt-num' : isEnum ? 'jt-value' : 'jt-value jt-vstr'
@@ -1193,19 +1183,27 @@ function treeRichValue(value: unknown, path: JsonPath): HTMLElement | null {
   if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
     return treeSlider(sub.minimum, sub.maximum, value, path)
   }
-  if (type === 'boolean') return treeBoolSwitch(value, path)
+  // boolean is handled by treeBasicValue (the switch is its basic control).
   return null
 }
 
-// Boolean toggle switch (the rich control; the basic field carries true/false text).
+// On/off switch: a <label> track wrapping the checkbox plus a real <span> knob.
+// A replaced <input> can't reliably host a pseudo-element knob (that was the old
+// fragile radial-gradient hack), so the knob is a genuine element the CSS slides.
 function treeBoolSwitch(value: unknown, path: JsonPath): HTMLElement {
+  const label = document.createElement('label')
+  label.className = 'jt-sw'
   const box = document.createElement('input')
   box.type = 'checkbox'
-  box.className = 'jt-sw'
+  box.className = 'jt-sw-in'
   box.checked = value === true
   box.setAttribute('aria-label', 'toggle')
   box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
-  return box
+  const knob = document.createElement('span')
+  knob.className = 'jt-sw-knob'
+  knob.setAttribute('aria-hidden', 'true')
+  label.append(box, knob)
+  return label
 }
 
 // enum (> 6 options): dropdown. Option index maps back to the typed enum value.
