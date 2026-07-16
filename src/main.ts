@@ -8,7 +8,6 @@ import { validateConfig } from './core/validateConfig'
 import {
   parseJsonFile,
   serializeConfig,
-  classifyFile,
   prepareProjectReconnect,
   resolveSaveTargetMode,
 } from './core/fileIo'
@@ -51,8 +50,6 @@ import {
   type SchemaRow,
 } from './core/schemaEdit'
 import type { FieldNode, FieldPath } from './core/types'
-import exampleSchemaText from '../examples/.jigtor/schema.json?raw'
-import exampleConfigText from '../examples/config.json?raw'
 import { installTauriFileSystem } from './tauri-fs'
 
 // When running inside the Tauri desktop shell, back the File System Access seam
@@ -110,8 +107,6 @@ let hasConfirmedDownloadMode = false
 let hasLoadedConfig = false
 let currentConfigName: string | null = null // which file the project tree marks as "editing"
 const filePickerWindow = window as FilePickerWindow
-const canUseFileSystemAccess = (): boolean =>
-  typeof filePickerWindow.showOpenFilePicker === 'function'
 const canUseProjectAccess = (): boolean =>
   typeof filePickerWindow.showDirectoryPicker === 'function'
 
@@ -241,19 +236,7 @@ app.innerHTML = `
     <section id="drop" class="drop">
       <div class="drop-primary">
         <button id="open-project" class="filebtn primary" type="button">${svgMarkup(ICON.folder)} Open project folder</button>
-        <span class="hint">or drag &amp; drop files here</span>
       </div>
-      <details class="more" id="more">
-        <summary>Other sources</summary>
-        <div class="more-actions">
-          <button id="open-schema" class="filebtn" type="button">${svgMarkup(ICON.file)} Open schema</button>
-          <label class="filebtn" id="import-config-label">${svgMarkup(ICON.download)} Import config<input type="file" id="config-input" accept=".json" hidden></label>
-          <label class="filebtn" id="import-schema-label">${svgMarkup(ICON.download)} Import schema<input type="file" id="schema-input" accept=".json" hidden></label>
-          <button id="infer-schema" class="filebtn" type="button">${svgMarkup(ICON.wand)} Generate schema from config</button>
-          <button id="load-example" class="filebtn" type="button">${svgMarkup(ICON.play)} Load example</button>
-          <button id="forget" class="filebtn" type="button" hidden>${svgMarkup(ICON.trash)} Forget saved</button>
-        </div>
-      </details>
     </section>
     <div class="drop-manage" id="manage">
       <div id="project-picker" class="project-picker" hidden></div>
@@ -357,7 +340,6 @@ const formHost = app.querySelector<HTMLElement>('#form-host')!
 const schemaEditor = app.querySelector<HTMLTextAreaElement>('#schema-editor')!
 const schemaMsg = app.querySelector<HTMLSpanElement>('#schema-msg')!
 const saveDialog = app.querySelector<HTMLDivElement>('#save-dialog')!
-const forgetBtn = app.querySelector<HTMLButtonElement>('#forget')!
 const schemaFields = app.querySelector<HTMLDivElement>('#schema-fields')!
 const samplePreview = app.querySelector<HTMLPreElement>('#sample-preview')!
 const saveBtn = app.querySelector<HTMLButtonElement>('#save')!
@@ -511,17 +493,10 @@ const schemaRecommend = app.querySelector<HTMLDivElement>('#schema-recommend')!
 const projectTree = app.querySelector<HTMLDetailsElement>('#project-tree')!
 const projectTreeBody = app.querySelector<HTMLDivElement>('#project-tree-body')!
 const openProjectBtn = app.querySelector<HTMLButtonElement>('#open-project')!
-const openSchemaBtn = app.querySelector<HTMLButtonElement>('#open-schema')!
-const moreDetails = app.querySelector<HTMLDetailsElement>('#more')!
 
-// Simplified entry (user request): "Open project folder" is the single primary
-// action; everything else folds into "Other sources". Where the File System
-// Access API is missing (Safari/Firefox), the FS-only openers can't work — hide
-// them and auto-expand the fold so the Import pickers are the visible path.
-if (!canUseFileSystemAccess()) {
-  openSchemaBtn.hidden = true
-  moreDetails.open = true
-}
+// "Open project folder" is the single entry point (user request: no drag-drop,
+// no import/other-source buttons). Where the directory-picker API is missing
+// (Safari/Firefox), there is nothing to fall back to — hide it.
 if (!canUseProjectAccess()) openProjectBtn.hidden = true
 
 // Dirty includes both config changes and schema edits such as field removal.
@@ -717,7 +692,6 @@ function buildForm(): void {
     state.original = applyDefaults(parsed.root as FieldNode, state.original)
   }
   persist()
-  forgetBtn.hidden = false // a session now exists to recall/forget
   revalidate()
 }
 
@@ -1508,23 +1482,6 @@ function loadConfigFromHandle(value: unknown, handle: FileSystemFileHandleLike):
   loadConfig(value)
 }
 
-function loadText(text: string, forceKind?: 'schema' | 'config', name = ''): void {
-  const parsed = parseJsonFile(text)
-  if (!parsed.ok) {
-    status.textContent = parsed.error
-    status.className = 'status error'
-    return
-  }
-  markNewData() // a file load is a fresh review session -> re-baseline the diff
-  const kind = forceKind ?? classifyFile(name, parsed.value)
-  if (kind === 'schema') loadSchema(parsed.value)
-  else {
-    configFileHandle = null
-    exitProjectMode() // imported/dropped config replaces the project context
-    loadConfig(parsed.value)
-  }
-}
-
 // ---- structured schema editor (Schema tab) ----
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -1728,29 +1685,6 @@ function showTab(target: Tab): void {
 useUiStore.subscribe((s, prev) => {
   if (s.activeTab !== prev.activeTab) showTab(s.activeTab)
 })
-
-// ---- file inputs / drop ----
-async function openSchemaWithFileSystemAccess(): Promise<void> {
-  if (!canUseFileSystemAccess()) {
-    status.textContent = 'Direct file save requires a Chromium-based browser with File System Access API support.'
-    status.className = 'status error'
-    return
-  }
-  const [handle] = await filePickerWindow.showOpenFilePicker!({
-    multiple: false,
-    types: [{ description: 'JSON files', accept: { 'application/json': ['.json'] } }],
-  })
-  if (!handle) return
-  const file = await handle.getFile()
-  const parsed = parseJsonFile(await file.text())
-  if (!parsed.ok) {
-    status.textContent = parsed.error
-    status.className = 'status error'
-    return
-  }
-  markNewData()
-  loadSchema(parsed.value)
-}
 
 async function readJsonHandle(handle: FileSystemFileHandleLike): Promise<unknown> {
   const file = await handle.getFile()
@@ -2076,91 +2010,6 @@ openProjectBtn.addEventListener('click', () => {
       status.className = 'status error'
     })
 })
-openSchemaBtn.addEventListener('click', () => {
-  void openSchemaWithFileSystemAccess().catch((e) => {
-    status.textContent = `Could not open schema: ${String(e)}`
-    status.className = 'status error'
-  })
-})
-
-app.querySelector<HTMLInputElement>('#schema-input')!.addEventListener('change', (e) => {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (f) void f.text().then((t) => loadText(t, 'schema', f.name))
-})
-app.querySelector<HTMLInputElement>('#config-input')!.addEventListener('change', (e) => {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (f) void f.text().then((t) => loadText(t, 'config', f.name))
-})
-
-const drop = app.querySelector<HTMLElement>('#drop')!
-drop.addEventListener('dragover', (e) => {
-  e.preventDefault()
-  drop.classList.add('dragover')
-})
-drop.addEventListener('dragleave', () => drop.classList.remove('dragover'))
-drop.addEventListener('drop', (e) => {
-  e.preventDefault()
-  drop.classList.remove('dragover')
-  const dt = e.dataTransfer
-  if (dt === null) return
-  // A DataTransferItem is only valid synchronously during the event, so kick off
-  // getAsFileSystemHandle() now and await the promises afterwards. A dropped
-  // directory opens as a project; plain files fall back to the JSON loader.
-  const handlePromises = Array.from(dt.items)
-    .filter((it) => it.kind === 'file')
-    .map((it) => {
-      const withHandle = it as DataTransferItem & {
-        getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>
-      }
-      return typeof withHandle.getAsFileSystemHandle === 'function'
-        ? withHandle.getAsFileSystemHandle()
-        : Promise.resolve<FileSystemHandle | null>(null)
-    })
-  const files = Array.from(dt.files)
-  void handleDrop(handlePromises, files).catch((err) => {
-    status.textContent = `Could not open dropped item: ${String(err)}`
-    status.className = 'status error'
-  })
-})
-
-async function handleDrop(
-  handlePromises: Promise<FileSystemHandle | null>[],
-  files: File[],
-): Promise<void> {
-  const handles = await Promise.all(handlePromises)
-  const dirHandle = handles.find((h): h is FileSystemDirectoryHandle => h?.kind === 'directory')
-  if (dirHandle !== undefined) {
-    await openDroppedProjectFolder(dirHandle as unknown as FileSystemDirectoryHandleLike)
-    return
-  }
-  for (const file of files) {
-    const text = await file.text()
-    loadText(text, undefined, file.name)
-  }
-}
-
-// Dropping a folder is equivalent to "Open project folder" — pick the config
-// (via the explorer/prompt when ambiguous) and connect it, preserving restored
-// edits when reconnecting after an auto-restore.
-async function openDroppedProjectFolder(dir: FileSystemDirectoryHandleLike): Promise<void> {
-  const candidates = await listRootJsonFiles(dir)
-  const [first] = candidates
-  if (first === undefined) {
-    exitProjectMode()
-    status.textContent = 'That folder has no .json files. Add a config.json, or drop a JSON file instead.'
-    status.className = 'status error'
-    return
-  }
-  const mode: ProjectConnectionMode =
-    hasLoadedConfig && projectDirectoryHandle === null ? 'preserve-restored' : 'replace'
-  if (candidates.length === 1) {
-    await connectProjectConfig(dir, first, mode)
-    if (mode === 'preserve-restored') setReconnectGate(false)
-    return
-  }
-  promptConfigInExplorer(dir, candidates.length, mode)
-}
-
 // ---- schema inference / adjustment ----
 function generateSchemaFromConfig(): boolean {
   if (typeof state.config !== 'object' || state.config === null || Array.isArray(state.config)) {
@@ -2194,10 +2043,6 @@ function recommendGenerateSchema(fileName: string): void {
   schemaRecommend.hidden = false
 }
 
-app.querySelector<HTMLButtonElement>('#infer-schema')!.addEventListener('click', () => {
-  generateSchemaFromConfig()
-})
-
 app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click', () => {
   const parsed = parseJsonFile(schemaEditor.value)
   if (!parsed.ok) {
@@ -2208,22 +2053,6 @@ app.querySelector<HTMLButtonElement>('#apply-schema')!.addEventListener('click',
   loadSchema(parsed.value)
 })
 
-app.querySelector<HTMLButtonElement>('#load-example')!.addEventListener('click', () => {
-  const s = parseJsonFile(exampleSchemaText)
-  const c = parseJsonFile(exampleConfigText)
-  if (!s.ok || !c.ok) {
-    status.textContent = 'Could not load bundled example.'
-    status.className = 'status error'
-    return
-  }
-  state.schema = s.value
-  state.originalSchema = clone(s.value)
-  state.config = c.value
-  hasLoadedConfig = true
-  markNewData() // fresh session -> re-baseline
-  exitProjectMode() // the bundled example isn't a real folder
-  refreshEditViews()
-})
 
 // ---- save: review diff, then write config.json (allowed even when invalid) ----
 function download(): void {
@@ -2421,24 +2250,6 @@ app.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', () => {
   renderSaveDialog()
 })
 
-// ---- session persistence: quick recall of the last loaded/edited file ----
-forgetBtn.addEventListener('click', () => {
-  try {
-    localStorage.removeItem(STORE_KEY)
-  } catch {
-    /* ignore */
-  }
-  forgetBtn.hidden = true
-  hasLoadedConfig = false
-  state.schema = null
-  state.originalSchema = null
-  state.config = {}
-  markNewData()
-  buildForm()
-  updateConnectionAlert()
-  status.textContent = 'Cleared saved session.'
-})
-
 // Prompt before leaving with unsaved changes.
 window.addEventListener('beforeunload', (e) => {
   if (isDirty) {
@@ -2488,7 +2299,6 @@ buildForm()
 renderHistoryTab() // show persisted save history from previous sessions
 setEditMode('tree') // default the Edit tab to the Tree editor
 if (restored) {
-  forgetBtn.hidden = false
   reconnectGateAction.disabled = !canUseProjectAccess()
   reconnectGateStatus.textContent = canUseProjectAccess()
     ? ''
