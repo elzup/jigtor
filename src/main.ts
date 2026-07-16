@@ -20,14 +20,12 @@ import { lineDiff } from './core/lineDiff'
 import {
   valueType,
   defaultForType,
-  coerceType,
   jsonGet,
   jsonSet,
   jsonDelete,
   jsonRenameKey,
   jsonInsert,
   jsonMoveItem,
-  type JsonType,
   type JsonPath,
 } from './core/jsonEdit'
 import { resolveSchemaAt } from './core/schemaAt'
@@ -708,9 +706,13 @@ function buildForm(): void {
 }
 
 // ---- Tree (real edit) mode: schema-independent, Firestore-style JSON editor ----
-const JSON_TYPES: JsonType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
 const collapsedPaths = new Set<string>() // pathKey -> collapsed (default expanded)
 const pathKey = (path: JsonPath): string => JSON.stringify(path)
+// A path key that matches validateConfig's string[] paths (array indices come
+// back as strings there, but as numbers in a JsonPath), so Tree leaves can look
+// up their own validation message.
+const errKey = (path: JsonPath): string => path.map(String).join('')
+let treeErrors: Map<string, string> = new Map()
 
 // Apply an immutable edit to the config, then refresh the tree and the shared
 // preview / validation / dirty / persist pipeline (works with or without a schema).
@@ -729,6 +731,7 @@ function applyTreeEdit(next: unknown): void {
 }
 
 function renderTree(): void {
+  treeErrors = collectTreeErrors()
   const type = valueType(state.config)
   if (type === 'object' || type === 'array') {
     treeHost.replaceChildren(treeContainerBody(state.config, []))
@@ -736,6 +739,31 @@ function renderTree(): void {
     // A bare primitive root: offer a single value editor at the root path.
     treeHost.replaceChildren(treeLeafRow('(value)', state.config, [], { root: true }))
   }
+  sizeTreeZones()
+}
+
+// Map each schema-invalid path to its message so Tree leaves can flag themselves.
+// The Block form has its own error wiring (revalidate); the Tree validates here
+// independently so a red field + message shows even when the form isn't built.
+function collectTreeErrors(): Map<string, string> {
+  const map = new Map<string, string>()
+  if (state.schema === null) return map
+  for (const err of validateConfig(state.schema, state.config).errors) {
+    if (err.path.length > 0) map.set(errKey(err.path), err.message)
+  }
+  return map
+}
+
+// Lock the content zone to its widest row so the action rail lines up in one
+// vertical column with no wasted width. Measured after render (no absolute
+// layout); scrollWidth is 0 without real layout (jsdom), so we keep max-content.
+function sizeTreeZones(): void {
+  treeHost.style.setProperty('--zc', 'max-content')
+  let max = 0
+  treeHost.querySelectorAll<HTMLElement>('.jt-zc').forEach((zc) => {
+    max = Math.max(max, zc.scrollWidth)
+  })
+  if (max > 0) treeHost.style.setProperty('--zc', `${max + 4}px`)
 }
 
 // All leaf (non-container) paths of the config, in document order.
@@ -855,7 +883,8 @@ function treeEntry(
   return treeLeafRow(key, value, path, { inArray })
 }
 
-// Object/array node: a header row (key, type, controls) + collapsible children.
+// Object/array node: a header row (content zone + action rail) + collapsible
+// children. The disclosure toggle is the row's lead glyph.
 function treeContainerRow(
   key: string | number,
   value: unknown,
@@ -866,6 +895,7 @@ function treeContainerRow(
   li.className = 'jt-node'
   const header = document.createElement('div')
   header.className = 'jt-row'
+  header.style.setProperty('--depth', String(Math.max(0, path.length - 1)))
   const collapsed = collapsedPaths.has(pathKey(path))
   const toggle = document.createElement('button')
   toggle.type = 'button'
@@ -877,19 +907,10 @@ function treeContainerRow(
     else collapsedPaths.add(pathKey(path))
     renderTree()
   })
-  const count = Array.isArray(value) ? value.length : Object.keys(value as object).length
-  header.append(
-    toggle,
-    treeKeyCell(key, path, inArray),
-    treeTypeSelect(value, path),
-    metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`),
-  )
-  const ext = schemaExtBadge(path, inArray)
-  if (ext) header.append(ext)
-  if (JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
-    header.append(metaSpan('●', 'jt-dot')) // subtree changed since baseline
-  }
-  header.append(treeActions(path, inArray))
+  const lead = metaSpan('', 'jt-lead')
+  lead.appendChild(toggle)
+  header.append(treeContentZone(key, value, path, { inArray, lead, hasError: false }))
+  header.append(treeRail(path, value, { panel: null, entries: [] }))
   li.appendChild(header)
   if (!collapsed) li.appendChild(treeContainerBody(value, path))
   return li
@@ -901,43 +922,133 @@ function treeLeafRow(
   path: JsonPath,
   opts: { inArray?: boolean; root?: boolean },
 ): HTMLElement {
+  const hasError = treeErrors.has(errKey(path))
   const row = document.createElement('div')
   row.className = 'jt-row'
-  if (!opts.root) row.append(spacer(), treeKeyCell(key, path, opts.inArray ?? false))
-  row.append(treeTypeSelect(value, path), treeValueEditor(value, path))
+  const lead = spacer() // a leaf has no disclosure toggle, but keeps the lead slot
+  row.append(treeContentZone(key, value, path, { inArray: opts.inArray ?? false, lead, hasError, root: opts.root }))
   if (opts.root) return row
-  row.append(treeActions(path, opts.inArray ?? false))
-  const ext = schemaExtBadge(path, opts.inArray ?? false)
-  if (ext) row.append(ext)
-  const meta = treeChangedMeta(path, value) // "was <baseline>" + reset, when dirty
-  if (meta) row.append(meta)
+  row.style.setProperty('--depth', String(Math.max(0, path.length - 1)))
 
-  // Per-field save history (with each version's timestamp), toggled per row and
-  // rendered lazily — the rows are built only the first time the panel is opened.
+  // The lazy history panel (built hidden; rows filled on first reveal) drops below
+  // the row, as does any validation message. Its rail button toggles the panel.
   const entries = fieldHistory(history, path.map(String))
-  if (entries.length === 0) return row
+  const panel = buildHistoryPanel(entries, path)
+  row.append(treeRail(path, value, { panel, entries }))
+
+  if (!hasError && panel === null) return row
   const leaf = document.createElement('div')
   leaf.className = 'jt-leaf'
+  leaf.style.setProperty('--depth', String(Math.max(0, path.length - 1))) // errrow/panel inherit
+  leaf.append(row)
+  if (hasError) leaf.append(treeErrorRow(path, treeErrors.get(errKey(path)) ?? ''))
+  if (panel) leaf.append(panel)
+  return leaf
+}
+
+// The merged content zone: everything except the action rail, on one
+// left-aligned line — lead (toggle/spacer), key, type chip, the basic form field
+// (or child count), the rich widget, the "not in schema" badge, and array ↑↓.
+function treeContentZone(
+  key: string | number,
+  value: unknown,
+  path: JsonPath,
+  opts: { inArray: boolean; lead: HTMLElement; hasError: boolean; root?: boolean },
+): HTMLElement {
+  const zc = document.createElement('span')
+  zc.className = 'jt-zc'
+  const type = valueType(value)
+  const isContainer = type === 'object' || type === 'array'
+  zc.append(opts.lead)
+  if (!opts.root) zc.append(treeKeyCell(key, path, opts.inArray))
+  zc.append(treeTypeChip(value))
+  if (isContainer) {
+    const count = Array.isArray(value) ? value.length : Object.keys(value as object).length
+    zc.append(metaSpan(Array.isArray(value) ? `[${count}]` : `{${count}}`, 'jt-count'))
+  } else {
+    zc.append(treeBasicValue(value, path, opts.hasError))
+    const rich = treeRichValue(value, path)
+    if (rich) zc.append(rich)
+  }
+  const ext = schemaExtBadge(path, opts.inArray)
+  if (ext) zc.append(ext)
+  if (isContainer && JSON.stringify(jsonGet(state.original, path)) !== JSON.stringify(value)) {
+    zc.append(metaSpan('●', 'jt-dot')) // subtree changed since baseline
+  }
+  // Array-item reorder lives here (it's about position, not editing).
+  if (opts.inArray) zc.append(treeMove(path))
+  return zc
+}
+
+// Fixed-slot action rail: reset (col 1) · history (col 2) · delete (col 3). Each
+// action owns a column so the same button sits in the same vertical line on every
+// row; a missing action simply leaves its slot empty.
+function treeRail(
+  path: JsonPath,
+  value: unknown,
+  opts: { panel: HTMLElement | null; entries: ReturnType<typeof fieldHistory> },
+): HTMLElement {
+  const rail = document.createElement('span')
+  rail.className = 'jt-z3'
+  const reset = treeChangedMeta(path, value) // reset-to-baseline button, when dirty
+  if (reset) rail.append(reset)
+  if (opts.panel) {
+    const panel = opts.panel
+    const hist = svgIconButton(ICON.clock, 'field history', () => {
+      panel.hidden = !panel.hidden
+      if (!panel.hidden) panel.dispatchEvent(new CustomEvent('jt-reveal'))
+    })
+    hist.classList.add('jt-hist')
+    rail.append(hist)
+  }
+  const del = svgIconButton(ICON.x, 'delete', () => applyTreeEdit(jsonDelete(state.config, path)))
+  del.classList.add('jt-del')
+  rail.append(del)
+  return rail
+}
+
+// The array-item reorder pair (↑↓), placed in the content zone.
+function treeMove(path: JsonPath): HTMLElement {
+  const index = Number(path[path.length - 1])
+  const arrayPath = path.slice(0, -1)
+  const move = metaSpan('', 'jt-move')
+  const up = svgIconButton(ICON.up, 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1)))
+  const down = svgIconButton(ICON.down, 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1)))
+  up.classList.add('jt-mv')
+  down.classList.add('jt-mv')
+  move.append(up, down)
+  return move
+}
+
+// Per-field save history, rendered lazily the first time its rail button opens
+// the panel. Returns the (hidden) panel element, or null when there is no history.
+function buildHistoryPanel(
+  entries: ReturnType<typeof fieldHistory>,
+  path: JsonPath,
+): HTMLElement | null {
+  if (entries.length === 0) return null
   const panel = document.createElement('div')
   panel.className = 'jt-history'
   panel.hidden = true
   let populated = false
-  const toggle = svgIconButton(
-    ICON.clock,
-    'field history',
-    () => {
-      if (!populated) {
-        for (const e of entries) panel.appendChild(treeHistoryRow(e.at, e.after, path))
-        populated = true
-      }
-      panel.hidden = !panel.hidden
-    },
-    ` ${entries.length}`,
-  )
-  toggle.classList.add('jt-hist-btn')
-  row.append(toggle)
-  leaf.append(row, panel)
-  return leaf
+  panel.addEventListener('jt-reveal', () => {
+    if (populated) return
+    for (const e of entries) panel.appendChild(treeHistoryRow(e.at, e.after, path))
+    populated = true
+  })
+  return panel
+}
+
+// A validation message row, indented under its field (danger-colored, alert icon).
+function treeErrorRow(path: JsonPath, message: string): HTMLElement {
+  const er = document.createElement('div')
+  er.className = 'jt-errrow'
+  er.style.setProperty('--depth', String(Math.max(0, path.length - 1)))
+  const msg = document.createElement('span')
+  msg.className = 'jt-errmsg'
+  msg.append(svgIcon(ICON.alert), document.createTextNode(message))
+  er.append(msg)
+  return er
 }
 
 // When a schema is loaded, flag keys it does not define. Such keys stay fully
@@ -1015,58 +1126,42 @@ const TYPE_SYMBOL: Record<string, string> = {
   null: '∅',
 }
 
-function treeTypeSelect(value: unknown, path: JsonPath): HTMLElement {
-  const wrap = document.createElement('span')
-  wrap.className = 'jt-type-wrap'
-  const current = valueType(value)
+// Type indicator: the color-coded symbol chip only. Tree mode does not change a
+// value's type (that belongs to the schema / Block form), so there is no picker.
+function treeTypeChip(value: unknown): HTMLElement {
+  const type = valueType(value)
   const chip = document.createElement('span')
   chip.className = 'jt-type-chip'
-  chip.dataset.type = current
-  chip.textContent = TYPE_SYMBOL[current] ?? '?'
-  const select = document.createElement('select')
-  select.className = 'jt-type'
-  select.setAttribute('aria-label', 'type')
-  for (const t of JSON_TYPES) {
-    const opt = document.createElement('option')
-    opt.value = t
-    opt.textContent = `${TYPE_SYMBOL[t] ?? ''} ${t}`.trim()
-    if (t === current) opt.selected = true
-    select.appendChild(opt)
-  }
-  select.addEventListener('change', () => {
-    const t = select.value as JsonType
-    applyTreeEdit(jsonSet(state.config, path, coerceType(value, t)))
-  })
-  wrap.append(chip, select)
-  return wrap
+  chip.dataset.type = type
+  chip.textContent = TYPE_SYMBOL[type] ?? '?'
+  return chip
 }
 
-// Type-appropriate leaf editor; commits on change (blur/enter) to avoid caret
-// jumps. When a schema governs this path, upgrade to its richer widget — enum ->
-// radio (≤6) / select, bounded number -> slider + input — matching the Edit form.
-function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
+// Basic form field, on the same line as the key: text · number · boolean-as-text
+// · null. Number and enum stay compact; a plain string gets a wide field. Commits
+// on change (blur/enter) to avoid caret jumps. Flagged red when the path is invalid.
+function treeBasicValue(value: unknown, path: JsonPath, hasError: boolean): HTMLElement {
   const type = valueType(value)
-  const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
-  const enumVals = sub && Array.isArray(sub.enum) ? sub.enum : null
-  if (enumVals && (type === 'string' || type === 'number')) {
-    return enumVals.length <= 6
-      ? treeEnumRadios(enumVals, value, path)
-      : treeEnumSelect(enumVals, value, path)
-  }
-  if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
-    return treeSlider(sub.minimum, sub.maximum, value, path)
-  }
-  if (type === 'boolean') {
-    const box = document.createElement('input')
-    box.type = 'checkbox'
-    box.className = 'jt-bool toggle'
-    box.checked = value === true
-    box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
-    return box
-  }
   if (type === 'null') return metaSpan('null', 'jt-null')
   const input = document.createElement('input')
-  input.className = 'jt-value'
+  input.setAttribute('aria-label', 'value')
+  if (hasError) input.classList.add('jt-invalid')
+  if (type === 'boolean') {
+    input.className = 'jt-value jt-vbool'
+    input.value = String(value)
+    input.addEventListener('change', () => {
+      const t = input.value.trim().toLowerCase()
+      if (t !== 'true' && t !== 'false') {
+        input.value = String(value) // reject non-boolean text; keep the toggle in sync
+        return
+      }
+      applyTreeEdit(jsonSet(state.config, path, t === 'true'))
+    })
+    return input
+  }
+  const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
+  const isEnum = sub !== null && Array.isArray(sub.enum)
+  input.className = type === 'number' ? 'jt-value jt-num' : isEnum ? 'jt-value' : 'jt-value jt-vstr'
   input.type = type === 'number' ? 'number' : 'text'
   input.value = type === 'number' ? String(value) : String(value ?? '')
   input.addEventListener('change', () => {
@@ -1078,6 +1173,34 @@ function treeValueEditor(value: unknown, path: JsonPath): HTMLElement {
     applyTreeEdit(jsonSet(state.config, path, next))
   })
   return input
+}
+
+// Rich widget shown next to the basic field, only when the schema affords one:
+// enum -> radios (≤6) / select, bounded number -> slider, boolean -> toggle switch.
+// Returns null for plain fields so those widgets line up in a single column.
+function treeRichValue(value: unknown, path: JsonPath): HTMLElement | null {
+  const type = valueType(value)
+  const sub = state.schema !== null ? resolveSchemaAt(state.schema, path) : null
+  const enumVals = sub && Array.isArray(sub.enum) ? sub.enum : null
+  if (enumVals && (type === 'string' || type === 'number')) {
+    return enumVals.length <= 6 ? treeEnumRadios(enumVals, value, path) : treeEnumSelect(enumVals, value, path)
+  }
+  if (type === 'number' && sub && typeof sub.minimum === 'number' && typeof sub.maximum === 'number') {
+    return treeSlider(sub.minimum, sub.maximum, value, path)
+  }
+  if (type === 'boolean') return treeBoolSwitch(value, path)
+  return null
+}
+
+// Boolean toggle switch (the rich control; the basic field carries true/false text).
+function treeBoolSwitch(value: unknown, path: JsonPath): HTMLElement {
+  const box = document.createElement('input')
+  box.type = 'checkbox'
+  box.className = 'jt-sw'
+  box.checked = value === true
+  box.setAttribute('aria-label', 'toggle')
+  box.addEventListener('change', () => applyTreeEdit(jsonSet(state.config, path, box.checked)))
+  return box
 }
 
 // enum (> 6 options): dropdown. Option index maps back to the typed enum value.
@@ -1116,7 +1239,8 @@ function treeEnumRadios(options: unknown[], value: unknown, path: JsonPath): HTM
 }
 
 // number with both bounds: range slider paired with a free number input. The
-// range updates the number live while dragging and commits on release.
+// range commits on release. It's the rich, coarse companion to the basic number
+// field (which lives in the content zone and takes any precise value).
 function treeSlider(min: number, max: number, value: unknown, path: JsonPath): HTMLElement {
   const wrap = document.createElement('span')
   wrap.className = 'jt-slider'
@@ -1124,38 +1248,15 @@ function treeSlider(min: number, max: number, value: unknown, path: JsonPath): H
   range.type = 'range'
   range.min = String(min)
   range.max = String(max)
-  range.step = '1' // default coarse step; the paired number input takes any value
-  const num = document.createElement('input')
-  num.type = 'number'
-  num.className = 'jt-value'
-  if (typeof value === 'number') {
-    range.value = String(value)
-    num.value = String(value)
-  }
-  const commit = (raw: string): void => {
-    const n = Number(raw)
+  // Fine step for tight bounds (e.g. a 0..1 ratio), coarse otherwise.
+  range.step = max - min <= 2 ? '0.05' : '1'
+  range.setAttribute('aria-label', 'value')
+  if (typeof value === 'number') range.value = String(value)
+  range.addEventListener('change', () => {
+    const n = Number(range.value)
     if (Number.isFinite(n)) applyTreeEdit(jsonSet(state.config, path, n))
-  }
-  range.addEventListener('input', () => (num.value = range.value))
-  range.addEventListener('change', () => commit(range.value))
-  num.addEventListener('change', () => commit(num.value))
-  wrap.append(range, num)
-  return wrap
-}
-
-// Per-entry controls: delete, plus reorder for array items.
-function treeActions(path: JsonPath, inArray: boolean): HTMLElement {
-  const wrap = document.createElement('span')
-  wrap.className = 'jt-actions'
-  if (inArray) {
-    const index = Number(path[path.length - 1])
-    const arrayPath = path.slice(0, -1)
-    wrap.append(
-      svgIconButton(ICON.up, 'move up', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, -1))),
-      svgIconButton(ICON.down, 'move down', () => applyTreeEdit(jsonMoveItem(state.config, arrayPath, index, 1))),
-    )
-  }
-  wrap.append(svgIconButton(ICON.x, 'delete', () => applyTreeEdit(jsonDelete(state.config, path))))
+  })
+  wrap.append(range)
   return wrap
 }
 
