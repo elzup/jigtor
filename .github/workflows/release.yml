@@ -26,6 +26,10 @@ jobs:
         run: npm install -g @antfu/ni
 
       - name: Install dependencies
+        # Force bash: on the Windows runner the default shell is PowerShell, where
+        # `ni` is an alias for New-Item — so `ni --frozen` installs nothing and
+        # just creates a file named "--frozen". Git Bash resolves `ni` to @antfu/ni.
+        shell: bash
         run: ni --frozen
 
       - name: Build
@@ -109,6 +113,10 @@ jobs:
         run: npm install -g @antfu/ni
 
       - name: Install dependencies
+        # Force bash: on the Windows runner the default shell is PowerShell, where
+        # `ni` is an alias for New-Item — so `ni --frozen` installs nothing and
+        # just creates a file named "--frozen". Git Bash resolves `ni` to @antfu/ni.
+        shell: bash
         run: ni --frozen
 
       - name: Build and upload desktop app
