@@ -12,6 +12,8 @@ import { renderForm } from '../src/core/renderForm'
 import { inferSchema } from '../src/core/inferSchema'
 import { applyDefaults } from '../src/core/applyDefaults'
 import { diffConfig } from '../src/core/diffConfig'
+import { orderLike } from '../src/core/orderLike'
+import { lineDiff } from '../src/core/lineDiff'
 import type { FieldPath } from '../src/core/types'
 
 const dir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'examples')
@@ -155,5 +157,40 @@ describe('integration: example config + schema', () => {
     const reparsed = parseJsonFile(out)
     expect(reparsed.ok).toBe(true)
     if (reparsed.ok) expect(validateConfig(schema, reparsed.value).valid).toBe(true)
+  })
+})
+
+describe('preview diff: key-order false-diff regression', () => {
+  // Mirrors the fillWholeFileDiff fix: when state.config and state.original hold
+  // the same values but in different key insertion order (e.g. after a project
+  // reconnect where the on-disk baseline has a different ordering than the
+  // in-memory edits), the line diff must show NO changes. Without orderLike
+  // normalisation the raw JSON.stringify outputs differ and every key appears as
+  // both removed and added.
+  function previewLines(original: unknown, config: unknown): ReturnType<typeof lineDiff> {
+    const before = JSON.stringify(original, null, 2).split('\n')
+    const after = JSON.stringify(orderLike(config, original), null, 2).split('\n')
+    return lineDiff(before, after)
+  }
+
+  test('same values, different key order => no diff lines', () => {
+    const original = { a: 1, b: 2, c: 3 }
+    const config = { c: 3, a: 1, b: 2 } // same values, different order
+    const rows = previewLines(original, config)
+    expect(rows.every((r) => r.kind === 'same')).toBe(true)
+  })
+
+  test('same values, nested objects with different key order => no diff lines', () => {
+    const original = { x: { p: 'foo', q: 'bar' }, y: 1 }
+    const config = { y: 1, x: { q: 'bar', p: 'foo' } } // both levels reordered
+    const rows = previewLines(original, config)
+    expect(rows.every((r) => r.kind === 'same')).toBe(true)
+  })
+
+  test('actual value change still shows as diff even after key-order normalisation', () => {
+    const original = { a: 1, b: 2 }
+    const config = { b: 99, a: 1 } // b changed, keys reordered
+    const rows = previewLines(original, config)
+    expect(rows.some((r) => r.kind !== 'same')).toBe(true)
   })
 })
